@@ -220,6 +220,7 @@ def main():
         if tablolar:
             target_table = st.selectbox("Tablo Seçin:", tablolar)
             
+            # Kullanıcıya kolaylık olsun diye önce verileri gösterelim
             with st.expander("Tablodaki Verileri Görüntüle (ID Bulmak İçin)"):
                 docs = db.collection(target_table).limit(50).stream()
                 data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
@@ -238,22 +239,30 @@ def main():
             if st.button("Güncelle"):
                 if doc_id and field_name:
                     try:
-                        # Sayısal dönüşüm denemesi
+                        # Sayısal dönüşüm denemesi (Opsiyonel)
                         try:
                             val_to_write = float(new_val)
                         except:
                             val_to_write = new_val
 
                         doc_ref = db.collection(target_table).document(doc_id)
+                        
+                        # Belgenin var olup olmadığını kontrol et
                         if doc_ref.get().exists:
-                            # DÜZELTME BURADA: FieldPath yukarıda import edildiği için burada tekrar import etmiyoruz.
-                            doc_ref.update({FieldPath(field_name): val_to_write})
+                            # --- DÜZELTME BURADA ---
+                            # FieldPath nesnesini kaldırdık.
+                            # Sözlük içine direkt string (field_name) veriyoruz.
+                            # Firestore Python SDK'sı "Son Durum" gibi boşluklu stringleri dict içinde kabul eder.
+                            doc_ref.update({field_name: val_to_write})
+                            
                             st.success("Güncelleme Başarılı!")
                             log_kayit_ekle("GÜNCELLEME", "web_modify", f"Kayıt Güncellendi: {doc_id}", f"{field_name} -> {new_val}")
                         else:
                             st.error("Bu ID'ye sahip döküman bulunamadı.")
                     except Exception as e:
                         st.error(f"Hata: {e}")
+                        # Detaylı hata görmek isterseniz traceback ekleyebilirsiniz
+                        # st.text(traceback.format_exc())
 
     # 5. KAYIT SİLME
     elif secim == "Kayıt Silme":
@@ -396,3 +405,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
