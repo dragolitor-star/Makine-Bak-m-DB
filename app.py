@@ -19,21 +19,42 @@ st.set_page_config(
 @st.cache_resource
 def init_db():
     if not firebase_admin._apps:
-        # Önce Streamlit Secrets içinde 'firebase' bilgisi var mı diye bakar (Bulut için)
+        # 1. Streamlit Secrets Kontrolü (Bulut için)
         if "firebase" in st.secrets:
-            # Secrets'tan gelen veriyi sözlük (dict) olarak alır
-            firebase_creds = dict(st.secrets["firebase"])
-            cred = credentials.Certificate(firebase_creds)
+            try:
+                # Veriyi alıp sözlüğe çeviriyoruz
+                firebase_creds = dict(st.secrets["firebase"])
+                
+                # --- KRİTİK DÜZELTME ---
+                if "private_key" in firebase_creds:
+                    firebase_creds["private_key"] = firebase_creds["private_key"].replace("\\n", "\n")
+                
+                cred = credentials.Certificate(firebase_creds)
+                firebase_admin.initialize_app(cred)
+                
+            except Exception as e:
+                st.error(f"Secrets anahtarı okunurken hata oluştu! Lütfen 'private_key' formatını kontrol edin.\nHata: {e}")
+                st.stop()
         
-        # Yoksa yerel dosya var mı diye bakar (Localhost için)
+        # 2. Local Dosya Kontrolü (Bilgisayarınız için)
         elif os.path.exists('license-machinerydb-firebase-adminsdk-fbsvc-7458edd97c.json'):
             cred = credentials.Certificate('license-machinerydb-firebase-adminsdk-fbsvc-7458edd97c.json')
+            firebase_admin.initialize_app(cred)
         
         else:
-            st.error("Firebase lisans anahtarı bulunamadı!")
+            st.error("Firebase lisansı bulunamadı! (Ne Secrets ne de JSON dosyası var)")
             st.stop()
             
-        firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+# --- KRİTİK NOKTA: BURASI EKSİKTİ ---
+# Veritabanını başlatıp 'db' değişkenine atıyoruz.
+# Diğer tüm fonksiyonlar bu 'db' değişkenini kullanacak.
+try:
+    db = init_db()
+except Exception as e:
+    st.error(f"Veritabanı bağlantısı kurulamadı: {e}")
+    st.stop()
 
 # --- LOGLAMA FONKSİYONU ---
 def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
@@ -57,12 +78,12 @@ def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
         else:
             df_yeni.to_excel(log_dosya_adi, index=False)
     except Exception as e:
-        # Web ortamında print yerine st.error kullanılabilir ama akışı bozmamak için pass geçiyoruz
         pass
 
 # --- YARDIMCI FONKSİYONLAR ---
 def get_table_list():
     """Mevcut koleksiyonları listeler"""
+    # db değişkeni artık yukarıda tanımlandığı için burada hata vermez
     koleksiyonlar = db.collections()
     return [coll.id for coll in koleksiyonlar]
 
@@ -342,7 +363,6 @@ def main():
                         st.info("Bu tabloda 'Versiyon' sütunu yok.")
                 
                 # Excel İndirme Butonu
-                # Pandas DataFrame'i Excel bytes'a çevirme
                 import io
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
