@@ -2,7 +2,9 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
+# --- DÜZELTME BURADA: Import yolları güncellendi ---
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud.firestore_v1.field_path import FieldPath 
 import datetime
 import traceback
 import os
@@ -22,10 +24,8 @@ def init_db():
         # 1. Streamlit Secrets Kontrolü (Bulut için)
         if "firebase" in st.secrets:
             try:
-                # Veriyi alıp sözlüğe çeviriyoruz
                 firebase_creds = dict(st.secrets["firebase"])
                 
-                # --- KRİTİK DÜZELTME ---
                 if "private_key" in firebase_creds:
                     firebase_creds["private_key"] = firebase_creds["private_key"].replace("\\n", "\n")
                 
@@ -33,27 +33,24 @@ def init_db():
                 firebase_admin.initialize_app(cred)
                 
             except Exception as e:
-                st.error(f"Secrets anahtarı okunurken hata oluştu! Lütfen 'private_key' formatını kontrol edin.\nHata: {e}")
+                st.error(f"Secrets hatası: {e}")
                 st.stop()
         
-        # 2. Local Dosya Kontrolü (Bilgisayarınız için)
+        # 2. Local Dosya Kontrolü
         elif os.path.exists('license-machinerydb-firebase-adminsdk-fbsvc-7458edd97c.json'):
             cred = credentials.Certificate('license-machinerydb-firebase-adminsdk-fbsvc-7458edd97c.json')
             firebase_admin.initialize_app(cred)
         
         else:
-            st.error("Firebase lisansı bulunamadı! (Ne Secrets ne de JSON dosyası var)")
+            st.error("Firebase lisansı bulunamadı!")
             st.stop()
             
     return firestore.client()
 
-# --- KRİTİK NOKTA: BURASI EKSİKTİ ---
-# Veritabanını başlatıp 'db' değişkenine atıyoruz.
-# Diğer tüm fonksiyonlar bu 'db' değişkenini kullanacak.
 try:
     db = init_db()
 except Exception as e:
-    st.error(f"Veritabanı bağlantısı kurulamadı: {e}")
+    st.error(f"Veritabanı bağlantı hatası: {e}")
     st.stop()
 
 # --- LOGLAMA FONKSİYONU ---
@@ -83,7 +80,6 @@ def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
 # --- YARDIMCI FONKSİYONLAR ---
 def get_table_list():
     """Mevcut koleksiyonları listeler"""
-    # db değişkeni artık yukarıda tanımlandığı için burada hata vermez
     koleksiyonlar = db.collections()
     return [coll.id for coll in koleksiyonlar]
 
@@ -191,7 +187,7 @@ def main():
                 pc_id = st.text_input("Kullanıcı PC ID")
             with col2:
                 pc_adi = st.text_input("Kullanıcı PC Adı")
-                versiyon = st.text_input("Versiyon") # Sayısal işlem gerekirse st.number_input
+                versiyon = st.text_input("Versiyon") 
                 son_durum = st.text_input("Son Durum")
                 notlar = st.text_input("Notlar")
                 icerik = st.text_input("İçerik")
@@ -215,7 +211,7 @@ def main():
                 except Exception as e:
                     st.error(f"Kayıt eklenirken hata oluştu: {e}")
 
-    # 4. KAYIT GÜNCELLEME
+    # 4. KAYIT GÜNCELLEME (HATA DÜZELTİLDİ)
     elif secim == "Kayıt Güncelle":
         st.header("✏️ Kayıt Güncelleme")
         st.info("Önce tabloyu seçin, ID'yi bulun, ardından güncellemek istediğiniz alanı girin.")
@@ -224,7 +220,6 @@ def main():
         if tablolar:
             target_table = st.selectbox("Tablo Seçin:", tablolar)
             
-            # Kullanıcıya kolaylık olsun diye önce verileri gösterelim
             with st.expander("Tablodaki Verileri Görüntüle (ID Bulmak İçin)"):
                 docs = db.collection(target_table).limit(50).stream()
                 data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
@@ -251,7 +246,7 @@ def main():
 
                         doc_ref = db.collection(target_table).document(doc_id)
                         if doc_ref.get().exists:
-                            from google.cloud.firestore import FieldPath
+                            # DÜZELTME BURADA: FieldPath yukarıda import edildiği için burada tekrar import etmiyoruz.
                             doc_ref.update({FieldPath(field_name): val_to_write})
                             st.success("Güncelleme Başarılı!")
                             log_kayit_ekle("GÜNCELLEME", "web_modify", f"Kayıt Güncellendi: {doc_id}", f"{field_name} -> {new_val}")
@@ -358,7 +353,7 @@ def main():
                     if 'Versiyon' in df.columns:
                         pie_data = df['Versiyon'].value_counts()
                         st.write("Versiyon Dağılımı")
-                        st.bar_chart(pie_data, horizontal=True) # veya st.plotly_chart ile pasta grafik
+                        st.bar_chart(pie_data, horizontal=True) 
                     else:
                         st.info("Bu tabloda 'Versiyon' sütunu yok.")
                 
