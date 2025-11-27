@@ -16,27 +16,35 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- ÖZEL CSS (KOYU TEMA) ---
+# --- ÖZEL CSS (KOYU TEMA: #93022E & #151515) ---
 def inject_custom_css():
     st.markdown("""
         <style>
             :root {
-                --primary-color: #93022E;
-                --bg-color: #151515;
-                --secondary-bg: #1E1E1E;
-                --text-color: #E0E0E0;
+                --primary-color: #93022E;    /* Bordo */
+                --bg-color: #151515;         /* Koyu Siyah */
+                --secondary-bg: #1E1E1E;     /* Kart Arka Planı */
+                --text-color: #E0E0E0;       /* Açık Gri Yazı */
             }
+
+            /* Ana Arka Plan */
             .stApp {
                 background-color: var(--bg-color);
                 color: var(--text-color);
             }
+
+            /* Header (Üst Çubuk) */
             [data-testid="stHeader"] {
                 background-color: var(--bg-color);
             }
+
+            /* Başlıklar */
             h1, h2, h3 {
                 color: white !important;
                 font-weight: 700;
             }
+
+            /* --- BUTON TASARIMLARI --- */
             div.stButton > button:first-child {
                 background-color: var(--primary-color);
                 color: white !important;
@@ -47,11 +55,14 @@ def inject_custom_css():
                 transition: all 0.2s ease;
                 width: 100%;
             }
+
             div.stButton > button:first-child:hover {
                 background-color: #B00338;
                 border-color: #B00338;
                 box-shadow: 0 0 10px rgba(147, 2, 46, 0.6);
             }
+
+            /* İkincil Butonlar (Geri Dön / Çıkış) */
             [data-testid="baseButton-secondary"] {
                 background-color: transparent !important;
                 color: #FFFFFF !important;
@@ -61,25 +72,38 @@ def inject_custom_css():
                 border-color: var(--primary-color) !important;
                 color: var(--primary-color) !important;
             }
+
+            /* --- GİRİŞ KUTULARI (INPUTS) --- */
             .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
                 background-color: #252525 !important;
                 color: white !important;
                 border: 1px solid #444 !important;
                 border-radius: 6px;
             }
+            
+            /* Dataframe (Tablo) Stilleri */
             [data-testid="stDataFrame"] {
                 background-color: #1E1E1E;
                 border: 1px solid #333;
                 border-radius: 6px;
             }
+
+            /* Kart Görünümü (Containers) */
             [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
                  background-color: var(--secondary-bg);
                  padding: 1.5rem;
                  border-radius: 8px;
                  border: 1px solid #333;
             }
+            
+            /* Expander (Açılır Kutu) Başlığı */
             .streamlit-expanderHeader {
                 background-color: #252525 !important;
+                color: white !important;
+            }
+            
+            /* Checkbox */
+            .stCheckbox label {
                 color: white !important;
             }
         </style>
@@ -122,20 +146,31 @@ except Exception as e:
     st.error(f"Veritabanı hatası: {e}")
     st.stop()
 
-# --- İLK KURULUM ---
-def create_default_admin():
+# --- İLK KURULUM VE YETKİ GÜNCELLEME ---
+def update_or_create_admin():
     users_ref = db.collection('system_users')
-    docs = users_ref.limit(1).stream()
-    if not list(docs):
+    doc = users_ref.document("admin").get()
+    
+    # Tam Yetki Listesi
+    full_perms = ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "transfer", "admin_panel"]
+    
+    if not doc.exists:
+        # Hiç yoksa oluştur
         admin_data = {
             "username": "admin",
             "password": make_hashes("123456"),
             "role": "admin",
-            "permissions": ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "transfer", "admin_panel"]
+            "permissions": full_perms
         }
         users_ref.document("admin").set(admin_data)
+    else:
+        # Varsa ve yetkisi eksikse GÜNCELLE (Bu kısım sorununuzu çözecek)
+        current_data = doc.to_dict()
+        current_perms = current_data.get("permissions", [])
+        if "transfer" not in current_perms:
+            users_ref.document("admin").update({"permissions": full_perms})
 
-create_default_admin()
+update_or_create_admin()
 
 # --- LOGLAMA ---
 def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
@@ -249,6 +284,8 @@ def main():
         st.info("Yapmak istediğiniz işlemi seçiniz.")
         
         col1, col2, col3 = st.columns(3)
+        
+        # 1. SÜTUN
         with col1:
             if "view" in permissions:
                 if st.button("📂 Tablo Görüntüleme", use_container_width=True): sayfa_degistir("Tablo Görüntüleme")
@@ -259,6 +296,7 @@ def main():
             if "admin_panel" in permissions:
                 if st.button("👑 Kullanıcı Yönetimi", use_container_width=True): sayfa_degistir("Kullanıcı Yönetimi (Admin)")
 
+        # 2. SÜTUN
         with col2:
             if "search" in permissions:
                 if st.button("🔍 Arama & Filtreleme", use_container_width=True): sayfa_degistir("Arama & Filtreleme")
@@ -269,6 +307,7 @@ def main():
             if "report" in permissions:
                 if st.button("📊 Raporlar", use_container_width=True): sayfa_degistir("Raporlar")
 
+        # 3. SÜTUN
         with col3:
             if "add" in permissions:
                 if st.button("➕ Yeni Kayıt Ekle", use_container_width=True): sayfa_degistir("Yeni Kayıt Ekle")
@@ -277,6 +316,7 @@ def main():
             if "logs" in permissions:
                 if st.button("📝 Log Kayıtları", use_container_width=True): sayfa_degistir("Log Kayıtları")
 
+    # --- ALT SAYFALAR ---
     else:
         if st.button("⬅️ Geri Dön", type="secondary"):
             sayfa_degistir("Ana Sayfa")
@@ -332,238 +372,4 @@ def main():
                     nl = st.text_input("Yeni Lokasyon:")
                     if st.button("Ekle"):
                         if add_location(nl):
-                            st.success(f"'{nl}' eklendi.")
-                            st.rerun()
-                with c2:
-                    dl = st.selectbox("Silinecek:", loc_list)
-                    if st.button("Sil"):
-                        if remove_location(dl):
-                            st.success(f"'{dl}' silindi.")
-                            st.rerun()
-            
-            st.divider()
-            tablolar = get_table_list()
-            if tablolar:
-                target = st.selectbox("Tablo:", tablolar)
-                docs = db.collection(target).stream()
-                data = [{"Dokuman_ID": doc.id, "Seç": False, **doc.to_dict()} for doc in docs]
-                if data:
-                    df = pd.DataFrame(data)
-                    if 'Lokasyon' not in df.columns: df['Lokasyon'] = "-"
-                    cols = ['Seç', 'Lokasyon'] + [c for c in df.columns if c not in ['Seç', 'Lokasyon', 'Dokuman_ID']]
-                    edited = st.data_editor(df[cols + ['Dokuman_ID']], column_config={"Seç": st.column_config.CheckboxColumn(default=False), "Dokuman_ID": st.column_config.TextColumn(disabled=True), "Lokasyon": st.column_config.TextColumn(disabled=True)}, disabled=[c for c in df.columns if c != 'Seç'], hide_index=True, use_container_width=True)
-                    
-                    sel = edited[edited['Seç'] == True]
-                    if not sel.empty:
-                        st.info(f"{len(sel)} kayıt seçildi.")
-                        target_loc = st.selectbox("Hedef Lokasyon:", get_locations())
-                        if st.button("TRANSFER ET"):
-                            prog = st.progress(0)
-                            cnt = 0
-                            for i, r in sel.iterrows():
-                                db.collection(target).document(r['Dokuman_ID']).update({'Lokasyon': target_loc})
-                                cnt+=1
-                                prog.progress(cnt/len(sel))
-                            st.success("Transfer Başarılı!")
-                            log_kayit_ekle("TRANSFER", "transfer", f"{cnt} Kayıt -> {target_loc}", f"Tablo: {target}")
-                            st.rerun()
-                else: st.warning("Boş.")
-
-        # 4. YENİ KAYIT EKLEME
-        elif secim == "Yeni Kayıt Ekle":
-            st.header("➕ Yeni Kayıt Ekle")
-            tablolar = get_table_list()
-            if tablolar:
-                target = st.selectbox("Tablo:", tablolar)
-                doc_id = st.text_input("ID (Opsiyonel):")
-                c1, c2 = st.columns(2)
-                with c1:
-                    seri = st.text_input("Seri No")
-                    dept = st.text_input("Departman")
-                    lok = st.selectbox("Lokasyon", get_locations())
-                    kul = st.text_input("Kullanıcı")
-                    pcid = st.text_input("PC ID")
-                with c2:
-                    pcad = st.text_input("PC Adı")
-                    ver = st.text_input("Versiyon")
-                    durum = st.text_input("Son Durum")
-                    notlar = st.text_input("Notlar")
-                    icerik = st.text_input("İçerik")
-                if st.button("Kaydet"):
-                    data = {"Seri No": seri, "Departman": dept, "Lokasyon": lok, "Kullanıcı": kul, "Kullanıcı PC ID": pcid, "Kullanıcı PC Adı": pcad, "Versiyon": ver, "Son Durum": durum, "Notlar": notlar, "İçerik": icerik, "Kayit_Tarihi": datetime.datetime.now().strftime("%d.%m.%Y")}
-                    try:
-                        if doc_id: db.collection(target).document(doc_id).set(data)
-                        else: db.collection(target).add(data)
-                        st.success("Eklendi!")
-                        log_kayit_ekle("EKLEME", "add", f"Kayıt Eklendi", f"Tablo: {target}")
-                    except Exception as e: st.error(f"Hata: {e}")
-
-        # 5. KAYIT GÜNCELLEME
-        elif secim == "Kayıt Güncelle":
-            st.header("✏️ Kayıt Güncelleme")
-            st.info("Değişiklik yapıp 'Kaydet'e basın.")
-            tablolar = get_table_list()
-            if tablolar:
-                target = st.selectbox("Tablo:", tablolar)
-                docs = db.collection(target).stream()
-                data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
-                if data:
-                    edited = st.data_editor(pd.DataFrame(data), num_rows="fixed", column_config={"Dokuman_ID": st.column_config.TextColumn(disabled=True)}, use_container_width=True)
-                    if st.button("💾 Değişiklikleri Kaydet"):
-                        prog = st.progress(0)
-                        for i, row in edited.iterrows():
-                            db.collection(target).document(row['Dokuman_ID']).set(row.drop('Dokuman_ID').to_dict(), merge=True)
-                            prog.progress((i+1)/len(edited))
-                        st.success("Güncellendi!")
-                        log_kayit_ekle("GÜNCELLEME", "update", f"Tablo Güncellendi: {target}")
-                        st.rerun()
-
-        # 6. KAYIT SİLME
-        elif secim == "Kayıt Silme":
-            st.header("🗑️ Kayıt Silme")
-            tablolar = get_table_list()
-            if tablolar:
-                target = st.selectbox("Tablo:", tablolar)
-                docs = db.collection(target).stream()
-                data = [{"Dokuman_ID": doc.id, "Seç": False, **doc.to_dict()} for doc in docs]
-                if data:
-                    df = pd.DataFrame(data)
-                    cols = ['Seç'] + [c for c in df.columns if c != 'Seç']
-                    edited = st.data_editor(df[cols], column_config={"Seç": st.column_config.CheckboxColumn(default=False), "Dokuman_ID": st.column_config.TextColumn(disabled=True)}, disabled=[c for c in df.columns if c != 'Seç'], hide_index=True, use_container_width=True)
-                    silinecekler = edited[edited['Seç']==True]
-                    if not silinecekler.empty:
-                        st.error(f"{len(silinecekler)} kayıt seçildi.")
-                        if st.button("SEÇİLİLERİ SİL"):
-                            prog = st.progress(0)
-                            for i, row in silinecekler.iterrows():
-                                db.collection(target).document(row['Dokuman_ID']).delete()
-                                prog.progress((i+1)/len(silinecekler))
-                            st.success("Silindi!")
-                            log_kayit_ekle("SİLME", "delete", f"{len(silinecekler)} Kayıt Silindi", f"Tablo: {target}")
-                            st.rerun()
-
-        # 7. TABLO SİLME
-        elif secim == "Tablo Silme":
-            st.header("💣 Tablo Silme")
-            st.error("Dikkat: Geri alınamaz!")
-            tablolar = get_table_list()
-            if tablolar:
-                target = st.selectbox("Tablo:", tablolar)
-                docs = list(db.collection(target).stream())
-                st.warning(f"Kayıt Sayısı: {len(docs)}")
-                if len(docs) > 0:
-                    if st.text_input(f"Onay için '{target}' yazın:") == target:
-                        if st.button("SİL"):
-                            prog = st.progress(0)
-                            for i, doc in enumerate(docs):
-                                doc.reference.delete()
-                                prog.progress((i+1)/len(docs))
-                            st.success("Tablo Silindi.")
-                            log_kayit_ekle("KRITIK_SILME", "delete_table", f"Tablo Silindi: {target}")
-                            st.rerun()
-                else:
-                    if st.button("Boş Tabloyu Kaldır"):
-                        st.success("Temizlendi.")
-                        st.rerun()
-
-        # 8. EXCEL YÜKLEME
-        elif secim == "Toplu Tablo Yükle (Excel)":
-            st.header("📤 Excel Yükle")
-            file = st.file_uploader("Dosya:", type=["xlsx", "xls"])
-            if file and st.button("Başlat"):
-                try:
-                    sheets = pd.read_excel(file, sheet_name=None)
-                    prog = st.progress(0)
-                    for i, (name, df) in enumerate(sheets.items()):
-                        st.write(f"Yükleniyor: {name}")
-                        df = df.dropna(how='all', axis=1).dropna(how='all', axis=0).fillna('None')
-                        df.columns = df.columns.astype(str).str.strip()
-                        batch = db.batch()
-                        count = 0
-                        for _, row in df.iterrows():
-                            batch.set(db.collection(name).document(), row.to_dict())
-                            count += 1
-                            if count % 400 == 0:
-                                batch.commit()
-                                batch = db.batch()
-                        batch.commit()
-                        prog.progress((i+1)/len(sheets))
-                    st.success("Tamamlandı!")
-                    log_kayit_ekle("YUKLEME", "upload", "Excel Yüklendi", f"Dosya: {file.name}")
-                except Exception as e: st.error(f"Hata: {e}")
-
-        # 9. RAPORLAR
-        elif secim == "Raporlar":
-            st.header("📊 Raporlar")
-            tablo = st.selectbox("Tablo:", get_table_list())
-            if st.button("Analiz Et"):
-                docs = db.collection(tablo).stream()
-                data = [doc.to_dict() for doc in docs]
-                if data:
-                    df = pd.DataFrame(data).fillna("-")
-                    st.write(f"Toplam: {len(df)}")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        sutun = st.selectbox("Grupla:", df.columns)
-                        if sutun: st.bar_chart(df[sutun].value_counts())
-                    with c2:
-                        if 'Versiyon' in df.columns:
-                            st.write("Versiyon Dağılımı")
-                            st.bar_chart(df['Versiyon'].value_counts(), horizontal=True)
-                    import io
-                    buff = io.BytesIO()
-                    with pd.ExcelWriter(buff) as writer: df.to_excel(writer, index=False)
-                    st.download_button("Excel İndir", data=buff.getvalue(), file_name=f"Rapor_{tablo}.xlsx", mime="application/vnd.ms-excel")
-
-        # 10. LOGLAR
-        elif secim == "Log Kayıtları":
-            st.header("📝 Loglar")
-            if os.path.exists("Sistem_Loglari.xlsx"):
-                st.dataframe(pd.read_excel("Sistem_Loglari.xlsx").sort_index(ascending=False), use_container_width=True)
-            else: st.info("Log yok.")
-
-        # 11. ADMIN PANELİ
-        elif secim == "Kullanıcı Yönetimi (Admin)":
-            st.header("👑 Kullanıcı Yönetimi")
-            with st.expander("Yeni Kullanıcı Ekle", expanded=True):
-                with st.form("add_user"):
-                    nu = st.text_input("Kullanıcı Adı")
-                    np = st.text_input("Şifre", type="password")
-                    nr = st.selectbox("Rol", ["user", "admin"])
-                    st.write("Yetkiler:")
-                    c1, c2, c3, c4 = st.columns(4)
-                    perms = []
-                    if c1.checkbox("Gör", True): perms.append("view")
-                    if c1.checkbox("Ara", True): perms.append("search")
-                    if c1.checkbox("Rapor"): perms.append("report")
-                    if c2.checkbox("Ekle"): perms.append("add")
-                    if c2.checkbox("Güncelle"): perms.append("update")
-                    if c2.checkbox("Yükle"): perms.append("upload")
-                    if c3.checkbox("Sil (Kayıt)"): perms.append("delete")
-                    if c3.checkbox("Sil (Tablo)"): perms.append("delete_table")
-                    if c4.checkbox("Log"): perms.append("logs")
-                    if c4.checkbox("Transfer"): perms.append("transfer")
-                    if nr == "admin": perms.append("admin_panel")
-                    if st.form_submit_button("Oluştur"):
-                        if nu and np:
-                            db.collection("system_users").document(nu).set({"username": nu, "password": make_hashes(np), "role": nr, "permissions": perms})
-                            st.success(f"{nu} eklendi.")
-                            log_kayit_ekle("ADMIN", "create_user", f"Kullanıcı Eklendi: {nu}")
-                        else: st.error("Eksik bilgi.")
-            st.subheader("Kullanıcı Listesi")
-            users = [u.to_dict() for u in db.collection("system_users").stream()]
-            if users:
-                udf = pd.DataFrame(users).drop(columns=["password"], errors="ignore")
-                st.dataframe(udf, use_container_width=True)
-                c_del1, c_del2 = st.columns([3,1])
-                with c_del1: to_del = st.selectbox("Silinecek Kullanıcı:", udf['username'])
-                with c_del2:
-                    if st.button("Kullanıcıyı Sil", type="secondary", use_container_width=True):
-                        if to_del != st.session_state["username"]:
-                            db.collection("system_users").document(to_del).delete()
-                            st.success("Silindi.")
-                            st.rerun()
-                        else: st.error("Kendinizi silemezsiniz.")
-
-if __name__ == "__main__":
-    main()
+                            st.success(f
