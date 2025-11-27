@@ -7,6 +7,7 @@ import datetime
 import traceback
 import os
 import hashlib
+import io # Excel indirme için
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -20,92 +21,19 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
-            :root {
-                --primary-color: #93022E;    /* Bordo */
-                --bg-color: #151515;         /* Koyu Siyah */
-                --secondary-bg: #1E1E1E;     /* Kart Arka Planı */
-                --text-color: #E0E0E0;       /* Açık Gri Yazı */
-            }
-
-            /* Ana Arka Plan */
-            .stApp {
-                background-color: var(--bg-color);
-                color: var(--text-color);
-            }
-
-            /* Header (Üst Çubuk) */
-            [data-testid="stHeader"] {
-                background-color: var(--bg-color);
-            }
-
-            /* Başlıklar */
-            h1, h2, h3 {
-                color: white !important;
-                font-weight: 700;
-            }
-
-            /* --- BUTON TASARIMLARI --- */
-            div.stButton > button:first-child {
-                background-color: var(--primary-color);
-                color: white !important;
-                border: 1px solid var(--primary-color);
-                border-radius: 6px;
-                padding: 0.75rem 1.5rem;
-                font-weight: 600;
-                transition: all 0.2s ease;
-                width: 100%;
-            }
-
-            div.stButton > button:first-child:hover {
-                background-color: #B00338;
-                border-color: #B00338;
-                box-shadow: 0 0 10px rgba(147, 2, 46, 0.6);
-            }
-
-            /* İkincil Butonlar (Geri Dön / Çıkış) */
-            [data-testid="baseButton-secondary"] {
-                background-color: transparent !important;
-                color: #FFFFFF !important;
-                border: 1px solid #555 !important;
-            }
-            [data-testid="baseButton-secondary"]:hover {
-                border-color: var(--primary-color) !important;
-                color: var(--primary-color) !important;
-            }
-
-            /* --- GİRİŞ KUTULARI (INPUTS) --- */
-            .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-                background-color: #252525 !important;
-                color: white !important;
-                border: 1px solid #444 !important;
-                border-radius: 6px;
-            }
-            
-            /* Dataframe (Tablo) Stilleri */
-            [data-testid="stDataFrame"] {
-                background-color: #1E1E1E;
-                border: 1px solid #333;
-                border-radius: 6px;
-            }
-
-            /* Kart Görünümü (Containers) */
-            [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-                 background-color: var(--secondary-bg);
-                 padding: 1.5rem;
-                 border-radius: 8px;
-                 border: 1px solid #333;
-            }
-            
-            /* Expander (Açılır Kutu) Başlığı */
-            .streamlit-expanderHeader {
-                background-color: #252525 !important;
-                color: white !important;
-            }
-            
-            /* Checkbox */
-            .stCheckbox label {
-                color: white !important;
-            }
+            :root { --primary-color: #93022E; --bg-color: #151515; --secondary-bg: #1E1E1E; --text-color: #E0E0E0; }
+            .stApp { background-color: var(--bg-color); color: var(--text-color); }
+            [data-testid="stHeader"] { background-color: var(--bg-color); }
+            h1, h2, h3 { color: white !important; font-weight: 700; }
+            div.stButton > button:first-child { background-color: var(--primary-color); color: white !important; border: 1px solid var(--primary-color); border-radius: 6px; padding: 0.75rem 1.5rem; font-weight: 600; transition: all 0.2s ease; width: 100%; }
+            div.stButton > button:first-child:hover { background-color: #B00338; border-color: #B00338; box-shadow: 0 0 10px rgba(147, 2, 46, 0.6); }
+            [data-testid="baseButton-secondary"] { background-color: transparent !important; color: #FFFFFF !important; border: 1px solid #555 !important; }
+            [data-testid="baseButton-secondary"]:hover { border-color: var(--primary-color) !important; color: var(--primary-color) !important; }
+            .stTextInput input, .stSelectbox div[data-baseweb="select"] > div, .stDateInput input { background-color: #252525 !important; color: white !important; border: 1px solid #444 !important; border-radius: 6px; }
+            [data-testid="stDataFrame"] { background-color: #1E1E1E; border: 1px solid #333; border-radius: 6px; }
+            [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] { background-color: var(--secondary-bg); padding: 1.5rem; border-radius: 8px; border: 1px solid #333; }
+            .streamlit-expanderHeader { background-color: #252525 !important; color: white !important; }
+            .stCheckbox label { color: white !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -146,25 +74,15 @@ except Exception as e:
     st.error(f"Veritabanı hatası: {e}")
     st.stop()
 
-# --- İLK KURULUM VE YETKİ GÜNCELLEME ---
+# --- İLK KURULUM ---
 def update_or_create_admin():
     users_ref = db.collection('system_users')
     doc = users_ref.document("admin").get()
-    
-    # Tam Yetki Listesi
     full_perms = ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "transfer", "admin_panel"]
-    
     if not doc.exists:
-        # Hiç yoksa oluştur
-        admin_data = {
-            "username": "admin",
-            "password": make_hashes("123456"),
-            "role": "admin",
-            "permissions": full_perms
-        }
+        admin_data = {"username": "admin", "password": make_hashes("123456"), "role": "admin", "permissions": full_perms}
         users_ref.document("admin").set(admin_data)
     else:
-        # Varsa ve yetkisi eksikse GÜNCELLE (Bu kısım sorununuzu çözecek)
         current_data = doc.to_dict()
         current_perms = current_data.get("permissions", [])
         if "transfer" not in current_perms:
@@ -188,14 +106,8 @@ def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
 
 # --- YARDIMCI FONKSİYONLAR ---
 def get_table_list():
-    return [coll.id for coll in db.collections() if coll.id not in ["system_users", "system_settings"]]
+    return [coll.id for coll in db.collections() if coll.id not in ["system_users", "system_settings", "transfer_loglari"]]
 
-def get_columns_of_table(table_name):
-    docs = db.collection(table_name).limit(1).stream()
-    for doc in docs: return list(doc.to_dict().keys())
-    return []
-
-# --- LOKASYON YÖNETİMİ ---
 def get_locations():
     doc = db.collection('system_settings').document('locations').get()
     if doc.exists: return sorted(doc.to_dict().get('list', []))
@@ -242,11 +154,9 @@ def main():
             st.markdown("<h1 style='text-align: center; color: #93022E;'>ALMAXTEX</h1>", unsafe_allow_html=True)
             st.markdown("<h4 style='text-align: center;'>Envanter Yönetim Sistemi</h4>", unsafe_allow_html=True)
             st.write("")
-            
             username = st.text_input("Kullanıcı Adı")
             password = st.text_input("Şifre", type="password")
             st.write("")
-            
             if st.button("Giriş Yap", use_container_width=True):
                 user_ref = db.collection("system_users").document(username)
                 user_doc = user_ref.get()
@@ -282,10 +192,7 @@ def main():
     if secim == "Ana Sayfa":
         st.title("Kontrol Paneli")
         st.info("Yapmak istediğiniz işlemi seçiniz.")
-        
         col1, col2, col3 = st.columns(3)
-        
-        # 1. SÜTUN
         with col1:
             if "view" in permissions:
                 if st.button("📂 Tablo Görüntüleme", use_container_width=True): sayfa_degistir("Tablo Görüntüleme")
@@ -295,8 +202,6 @@ def main():
                 if st.button("📤 Excel Yükle", use_container_width=True): sayfa_degistir("Toplu Tablo Yükle (Excel)")
             if "admin_panel" in permissions:
                 if st.button("👑 Kullanıcı Yönetimi", use_container_width=True): sayfa_degistir("Kullanıcı Yönetimi (Admin)")
-
-        # 2. SÜTUN
         with col2:
             if "search" in permissions:
                 if st.button("🔍 Arama & Filtreleme", use_container_width=True): sayfa_degistir("Arama & Filtreleme")
@@ -306,8 +211,6 @@ def main():
                 if st.button("🗑️ Kayıt Silme", use_container_width=True): sayfa_degistir("Kayıt Silme")
             if "report" in permissions:
                 if st.button("📊 Raporlar", use_container_width=True): sayfa_degistir("Raporlar")
-
-        # 3. SÜTUN
         with col3:
             if "add" in permissions:
                 if st.button("➕ Yeni Kayıt Ekle", use_container_width=True): sayfa_degistir("Yeni Kayıt Ekle")
@@ -361,52 +264,173 @@ def main():
                     else: st.dataframe(df, use_container_width=True)
             else: st.warning("Tablo yok.")
 
-        # 3. MAKİNE TRANSFERİ
+        # 3. MAKİNE TRANSFERİ (GELİŞTİRİLMİŞ)
         elif secim == "Makine Transferi":
-            st.header("🚚 Makine Transferi")
-            with st.expander("⚙️ Lokasyon Yönetimi", expanded=False):
+            st.header("🚚 Makine Transfer Takip Sistemi")
+            
+            # --- BİLGİLENDİRME VE UYARILAR KISMI ---
+            # Aktif transferleri 'transfer_loglari' koleksiyonundan çekelim
+            # Bu koleksiyonu transfer yapıldıkça oluşturacağız
+            transfer_docs = list(db.collection('transfer_loglari').stream())
+            transfer_data = [d.to_dict() for d in transfer_docs]
+            
+            if transfer_data:
+                df_transfer = pd.DataFrame(transfer_data)
+                
+                # Bugünün tarihi
+                bugun = datetime.date.today()
+                
+                # Tarih dönüşümleri (String -> Date)
+                df_transfer['Geri_Alim_Tarihi'] = pd.to_datetime(df_transfer['Geri_Alim_Tarihi']).dt.date
+                df_transfer['Gonderim_Tarihi'] = pd.to_datetime(df_transfer['Gonderim_Tarihi']).dt.date
+                
+                # Durum Analizi
+                gecikenler = df_transfer[df_transfer['Geri_Alim_Tarihi'] < bugun]
+                bugun_donus = df_transfer[df_transfer['Geri_Alim_Tarihi'] == bugun]
+                yaklasanlar = df_transfer[(df_transfer['Geri_Alim_Tarihi'] > bugun) & (df_transfer['Geri_Alim_Tarihi'] <= bugun + datetime.timedelta(days=3))]
+                
+                # UYARI KARTLARI
+                uc1, uc2, uc3 = st.columns(3)
+                if not gecikenler.empty:
+                    uc1.error(f"🚨 GECİKEN TRANSFERLER: {len(gecikenler)} Adet")
+                    with uc1.expander("Detaylar"):
+                        st.dataframe(gecikenler[['Makine_Info', 'Hedef_Lokasyon', 'Geri_Alim_Tarihi']])
+                else:
+                    uc1.success("Geciken transfer yok.")
+                    
+                if not bugun_donus.empty:
+                    uc2.warning(f"⚠️ BUGÜN DÖNMESİ GEREKEN: {len(bugun_donus)} Adet")
+                    with uc2.expander("Detaylar"):
+                        st.dataframe(bugun_donus[['Makine_Info', 'Hedef_Lokasyon']])
+                else:
+                    uc2.info("Bugün dönüşü planlanan yok.")
+                    
+                if not yaklasanlar.empty:
+                    uc3.info(f"📅 Yakında Dönecekler (3 Gün): {len(yaklasanlar)} Adet")
+                else:
+                    uc3.info("Yakın tarihte dönüş yok.")
+                
+                st.divider()
+                
+                # TRANSFER GEÇMİŞİ TABLOSU
+                st.subheader("📋 Tüm Transfer Kayıtları")
+                
+                # Süre hesaplamaları (Görselleştirme için)
+                df_transfer['Kalan_Gun'] = (df_transfer['Geri_Alim_Tarihi'] - bugun).apply(lambda x: x.days)
+                df_transfer['Durum'] = df_transfer['Kalan_Gun'].apply(lambda x: "Gecikti" if x < 0 else ("Bugün" if x == 0 else f"{x} Gün Kaldı"))
+                
+                st.dataframe(df_transfer, use_container_width=True)
+                
+                # Excel İndir
+                import io
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    df_transfer.to_excel(writer, index=False, sheet_name='Transferler')
+                st.download_button("📥 Transfer Listesini İndir (Excel)", data=buffer.getvalue(), file_name=f"Transfer_Listesi_{bugun}.xlsx", mime="application/vnd.ms-excel")
+                
+                st.divider()
+
+            # --- YENİ TRANSFER İŞLEMİ ---
+            st.subheader("Yeni Transfer Başlat")
+            
+            # Lokasyon Yönetimi
+            with st.expander("⚙️ Lokasyon Yönetimi"):
                 loc_list = get_locations()
-                st.write(f"Lokasyonlar: {', '.join(loc_list)}")
                 c1, c2 = st.columns(2)
                 with c1:
                     nl = st.text_input("Yeni Lokasyon:")
-                    if st.button("Ekle"):
-                        if add_location(nl):
-                            st.success(f"'{nl}' eklendi.")
-                            st.rerun()
+                    if st.button("Ekle") and add_location(nl): st.rerun()
                 with c2:
                     dl = st.selectbox("Silinecek:", loc_list)
-                    if st.button("Sil"):
-                        if remove_location(dl):
-                            st.success(f"'{dl}' silindi.")
-                            st.rerun()
+                    if st.button("Sil") and remove_location(dl): st.rerun()
             
-            st.divider()
             tablolar = get_table_list()
             if tablolar:
-                target = st.selectbox("Tablo:", tablolar)
-                docs = db.collection(target).stream()
+                target_table = st.selectbox("Transfer Yapılacak Tablo:", tablolar)
+                docs = db.collection(target_table).stream()
                 data = [{"Dokuman_ID": doc.id, "Seç": False, **doc.to_dict()} for doc in docs]
+                
                 if data:
                     df = pd.DataFrame(data)
                     if 'Lokasyon' not in df.columns: df['Lokasyon'] = "-"
+                    
+                    # Makine Seçim Tablosu
                     cols = ['Seç', 'Lokasyon'] + [c for c in df.columns if c not in ['Seç', 'Lokasyon', 'Dokuman_ID']]
-                    edited = st.data_editor(df[cols + ['Dokuman_ID']], column_config={"Seç": st.column_config.CheckboxColumn(default=False), "Dokuman_ID": st.column_config.TextColumn(disabled=True), "Lokasyon": st.column_config.TextColumn(disabled=True)}, disabled=[c for c in df.columns if c != 'Seç'], hide_index=True, use_container_width=True)
+                    edited = st.data_editor(
+                        df[cols + ['Dokuman_ID']], 
+                        column_config={
+                            "Seç": st.column_config.CheckboxColumn("Transfer?", default=False),
+                            "Dokuman_ID": st.column_config.TextColumn(disabled=True),
+                            "Lokasyon": st.column_config.TextColumn(disabled=True)
+                        },
+                        disabled=[c for c in df.columns if c != 'Seç'],
+                        hide_index=True, 
+                        use_container_width=True
+                    )
                     
                     sel = edited[edited['Seç'] == True]
+                    
                     if not sel.empty:
-                        st.info(f"{len(sel)} kayıt seçildi.")
-                        target_loc = st.selectbox("Hedef Lokasyon:", get_locations())
-                        if st.button("TRANSFER ET"):
-                            prog = st.progress(0)
-                            cnt = 0
-                            for i, r in sel.iterrows():
-                                db.collection(target).document(r['Dokuman_ID']).update({'Lokasyon': target_loc})
-                                cnt+=1
-                                prog.progress(cnt/len(sel))
-                            st.success("Transfer Başarılı!")
-                            log_kayit_ekle("TRANSFER", "transfer", f"{cnt} Kayıt -> {target_loc}", f"Tablo: {target}")
-                            st.rerun()
+                        st.info(f"{len(sel)} kayıt seçildi. Transfer detaylarını giriniz:")
+                        
+                        c_date1, c_date2, c_loc = st.columns(3)
+                        with c_date1:
+                            gonderim_tar = st.date_input("Gönderim Tarihi", datetime.date.today())
+                        with c_date2:
+                            donus_tar = st.date_input("Tahmini Geri Alım Tarihi", datetime.date.today() + datetime.timedelta(days=7))
+                        with c_loc:
+                            hedef_lokasyon = st.selectbox("Hedef Lokasyon:", get_locations())
+                        
+                        # Süre Hesabı
+                        sure = (donus_tar - gonderim_tar).days
+                        if sure < 0:
+                            st.error("Hata: Dönüş tarihi gönderim tarihinden önce olamaz!")
+                        else:
+                            st.success(f"⏱️ Görevlendirilen Süre: **{sure} Gün**")
+                            
+                            if st.button(f"TRANSFERİ ONAYLA ({len(sel)} Makine)"):
+                                try:
+                                    prog = st.progress(0)
+                                    cnt = 0
+                                    batch = db.batch()
+                                    
+                                    for i, r in sel.iterrows():
+                                        doc_id = r['Dokuman_ID']
+                                        
+                                        # 1. Ana Tabloda Lokasyonu Güncelle
+                                        doc_ref = db.collection(target_table).document(doc_id)
+                                        doc_ref.update({'Lokasyon': hedef_lokasyon})
+                                        
+                                        # 2. Transfer Loguna Kayıt At (Takip İçin)
+                                        log_ref = db.collection('transfer_loglari').document()
+                                        # Makineyi tanımlayacak bir bilgi bulalım (Seri No varsa onu, yoksa ID)
+                                        makine_info = r.get('Seri No', r.get('Makine Adı', doc_id))
+                                        
+                                        transfer_data = {
+                                            "Tablo": target_table,
+                                            "Makine_ID": doc_id,
+                                            "Makine_Info": makine_info,
+                                            "Kaynak_Lokasyon": r.get('Lokasyon', '-'),
+                                            "Hedef_Lokasyon": hedef_lokasyon,
+                                            "Gonderim_Tarihi": str(gonderim_tar),
+                                            "Geri_Alim_Tarihi": str(donus_tar),
+                                            "Gorev_Suresi_Gun": sure,
+                                            "Transfer_Eden": st.session_state["username"],
+                                            "Islem_Zamani": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                        }
+                                        log_ref.set(transfer_data)
+                                        
+                                        cnt += 1
+                                        prog.progress(cnt / len(sel))
+                                    
+                                    st.success(f"Transfer Tamamlandı! {cnt} makine '{hedef_lokasyon}' konumuna atandı.")
+                                    log_kayit_ekle("TRANSFER", "machine_transfer", f"{cnt} Makine -> {hedef_lokasyon} ({sure} Gün)", f"Tablo: {target_table}")
+                                    st.rerun()
+                                    
+                                except Exception as e:
+                                    st.error(f"Transfer sırasında hata: {e}")
+                    else:
+                        st.info("Transfer edilecek makineleri listeden seçiniz.")
                 else: st.warning("Boş.")
 
         # 4. YENİ KAYIT EKLEME
