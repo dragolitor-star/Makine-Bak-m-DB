@@ -230,52 +230,53 @@ def main():
             if data:
                 df = pd.DataFrame(data)
                 
-                # --- AKILLI SEÇİM MEKANİZMASI ---
-                # Kullanıcının kaydı tanıması için bir "Etiket" sütunu oluşturuyoruz.
-                # Eğer 'Seri No' veya 'Kullanıcı' sütunu yoksa '-' koyar.
-                df['Etiket'] = df.apply(lambda x: f"Seri: {x.get('Seri No', '-')} | Kul: {x.get('Kullanıcı', '-')} | ID: {x['Dokuman_ID'][:5]}...", axis=1)
+                # --- ETİKET OLUŞTURMA (ID GİZLENDİ) ---
+                # Hangi sütunların gösterileceğini belirliyoruz (Varsa ekler, yoksa atlar)
+                oncelikli_sutunlar = ['Seri No', 'Kullanıcı', 'Departman', 'Lokasyon', 'PC Adı']
+                mevcut_sutunlar = [col for col in oncelikli_sutunlar if col in df.columns]
                 
-                st.info("Aşağıdaki listeden güncellemek istediğiniz kaydı seçin (Yazarak arayabilirsiniz):")
+                # Eğer öncelikli sütunlardan hiçbiri yoksa (farklı bir tabloysa) ilk 3 sütunu al
+                if not mevcut_sutunlar:
+                    mevcut_sutunlar = [col for col in df.columns if col != 'Dokuman_ID'][:3]
+
+                # Etiketi oluştur: Verileri " - " ile birleştirir
+                df['Etiket'] = df.apply(lambda x: " | ".join([str(x[col]) for col in mevcut_sutunlar]), axis=1)
                 
-                # Selectbox ile seçim yaptırıyoruz
+                st.info("Aşağıdaki listeden güncellemek istediğiniz kaydı seçin:")
+                
+                # Selectbox
                 secilen_etiket = st.selectbox("Kayıt Seçiniz:", df['Etiket'])
                 
-                # Seçilen etikete göre o satırın tüm verisini buluyoruz
+                # Seçilen satırı bul
                 secilen_satir = df[df['Etiket'] == secilen_etiket].iloc[0]
                 doc_id = secilen_satir['Dokuman_ID']
                 
                 st.divider()
                 st.write(f"**Seçilen Kayıt:** {secilen_etiket}")
                 
-                # Sütun seçimi
-                # (Dokuman_ID ve Etiket sütunlarını güncelleme listesinden çıkarıyoruz)
+                # Sütun seçimi (ID ve Etiket hariç)
                 guncellenebilir_sutunlar = [col for col in df.columns if col not in ['Dokuman_ID', 'Etiket']]
                 field_name = st.selectbox("Değiştirilecek Sütun:", guncellenebilir_sutunlar)
                 
-                # Mevcut değeri kullanıcıya gösteriyoruz (Büyük kolaylık!)
                 mevcut_deger = secilen_satir.get(field_name, "")
                 st.warning(f"Şu anki değer: {mevcut_deger}")
                 
                 new_val = st.text_input("Yeni Değer:", value=str(mevcut_deger))
 
                 if st.button("Güncelle"):
-                    if new_val != str(mevcut_deger): # Değer değişmişse işlem yap
+                    if new_val != str(mevcut_deger):
                         try:
-                            # Sayısal dönüşüm denemesi
                             try:
                                 val_to_write = float(new_val)
                             except:
                                 val_to_write = new_val
 
                             doc_ref = db.collection(target_table).document(doc_id)
-                            
-                            # Direkt string key kullanarak güncelleme (FieldPath hatası almamak için)
                             doc_ref.update({field_name: val_to_write})
                             
                             st.success(f"Başarılı! '{field_name}' alanı güncellendi.")
                             log_kayit_ekle("GÜNCELLEME", "web_modify", f"Kayıt Güncellendi: {doc_id}", f"{field_name} -> {new_val}")
                             
-                            # Sayfayı yenilemeye gerek kalmadan kullanıcıya mesaj verelim
                             st.caption("Not: Tabloyu güncel halini görmek için sayfayı yenileyebilirsiniz.")
                             
                         except Exception as e:
@@ -292,7 +293,6 @@ def main():
         if tablolar:
             target_table = st.selectbox("Tablo Seçin:", tablolar)
             
-            # Verileri çekiyoruz
             docs = db.collection(target_table).stream()
             data = []
             for doc in docs:
@@ -303,23 +303,25 @@ def main():
             if data:
                 df = pd.DataFrame(data)
                 
-                # --- AKILLI SEÇİM MEKANİZMASI ---
-                df['Etiket'] = df.apply(lambda x: f"Seri: {x.get('Seri No', '-')} | Kul: {x.get('Kullanıcı', '-')} | ID: {x['Dokuman_ID']}", axis=1)
+                # --- ETİKET OLUŞTURMA (ID GİZLENDİ) ---
+                oncelikli_sutunlar = ['Seri No', 'Kullanıcı', 'Departman', 'Lokasyon', 'PC Adı']
+                mevcut_sutunlar = [col for col in oncelikli_sutunlar if col in df.columns]
+                
+                if not mevcut_sutunlar:
+                    mevcut_sutunlar = [col for col in df.columns if col != 'Dokuman_ID'][:3]
+
+                df['Etiket'] = df.apply(lambda x: " | ".join([str(x[col]) for col in mevcut_sutunlar]), axis=1)
                 
                 st.warning("DİKKAT: Seçilen kayıt kalıcı olarak silinecektir!")
                 
-                # Selectbox ile seçim
                 secilen_etiket = st.selectbox("Silinecek Kaydı Seçiniz:", df['Etiket'])
                 
-                # Seçilen satırın ID'sini bul
                 secilen_satir = df[df['Etiket'] == secilen_etiket].iloc[0]
                 doc_id = secilen_satir['Dokuman_ID']
                 
-                # Silmeden önce detay gösterelim ki yanlışlık olmasın
                 with st.expander("Silinecek Kaydın Detaylarını Gör"):
-                    st.write(secilen_satir.drop('Etiket')) # Etiket sütunu hariç göster
+                    st.write(secilen_satir.drop(['Etiket', 'Dokuman_ID'], errors='ignore'))
                 
-                # Onay Kutusu
                 onay = st.checkbox("Bu kaydı silmek istediğime eminim.")
                 
                 if st.button("Kaydı Sil"):
@@ -328,8 +330,6 @@ def main():
                             db.collection(target_table).document(doc_id).delete()
                             st.success("Kayıt başarıyla silindi.")
                             log_kayit_ekle("SİLME", "web_remove", f"Kayıt Silindi: {doc_id}", f"Tablo: {target_table}")
-                            
-                            # İşlem bitince butonu tekrar tıklanmaz hale getirmek için:
                             st.rerun() 
                         except Exception as e:
                             st.error(f"Silme hatası: {e}")
@@ -461,5 +461,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
