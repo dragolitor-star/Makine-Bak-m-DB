@@ -2,6 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
+from google.cloud.firestore_v1.field_path import FieldPath 
 import datetime
 import traceback
 import os
@@ -70,7 +71,10 @@ def get_columns_of_table(table_name):
 def main():
     st.title("🏭 Almaxtex Konfeksiyon Makine Bakım Veritabanı")
     st.sidebar.header("İşlem Menüsü")
-    secim = st.sidebar.radio("İşlem Seçin:", ["Ana Sayfa", "Tablo Görüntüleme", "Arama & Filtreleme", "Yeni Kayıt Ekle", "Kayıt Güncelle", "Kayıt Silme", "Toplu Tablo Yükle (Excel)", "Raporlar", "Log Kayıtları"])
+    secim = st.sidebar.radio("İşlem Seçin:", 
+                             ["Ana Sayfa", "Tablo Görüntüleme", "Arama & Filtreleme", 
+                              "Yeni Kayıt Ekle", "Kayıt Güncelle", "Kayıt Silme", 
+                              "Toplu Tablo Yükle (Excel)", "Raporlar", "Log Kayıtları"])
 
     # 1. TABLO GÖRÜNTÜLEME
     if secim == "Tablo Görüntüleme":
@@ -83,41 +87,53 @@ def main():
                 if data: st.dataframe(pd.DataFrame(data), use_container_width=True)
                 else: st.warning("Tablo boş.")
 
-    # 2. ARAMA VE FİLTRELEME (GARANTİLİ YÖNTEM - PANDAS)
+    # 2. ARAMA VE FİLTRELEME (DİNAMİK PANDAS ARAMASI)
     elif secim == "Arama & Filtreleme":
-        st.header("🔍 Arama ve Filtreleme")
+        st.header("🔍 Dinamik Arama ve Filtreleme")
+        st.info("Tabloyu seçin, bir sütun belirleyin ve yazmaya başlayın. Sonuçlar anlık olarak filtrelenecektir.")
+        
         tablolar = get_table_list()
         if tablolar:
-            col1, col2 = st.columns(2)
-            with col1: secilen_tablo = st.selectbox("Tablo Seçin:", tablolar)
-            with col2:
-                # Unnamed sütunları filtrele
-                raw_cols = get_columns_of_table(secilen_tablo)
-                cols = [c for c in raw_cols if "Unnamed" not in str(c)]
-                secilen_sutun = st.selectbox("Sütun Seçin:", cols) if cols else None
+            secilen_tablo = st.selectbox("Tablo Seçin:", tablolar)
             
-            aranan = st.text_input("Aranacak Değer:")
+            # Veriyi en başta çekiyoruz (Performans için)
+            # Eğer veri çok büyükse (10.000+) bu yöntem yavaşlayabilir ama mevcut ölçekte en iyisidir.
+            docs = db.collection(secilen_tablo).stream()
+            data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
             
-            if st.button("Ara"):
-                if secilen_sutun and aranan:
-                    with st.spinner("Aranıyor..."):
-                        # Tüm veriyi çekip Python tarafında filtreliyoruz (Hatasız Yöntem)
-                        docs = db.collection(secilen_tablo).stream()
-                        data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
+            if data:
+                df = pd.DataFrame(data)
+                
+                # Arama Arayüzü
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Unnamed sütunları gizleyerek listele
+                    cols = [c for c in df.columns if "Unnamed" not in str(c) and c != "Dokuman_ID"]
+                    secilen_sutun = st.selectbox("Hangi Sütunda Arama Yapılacak?", cols)
+                
+                with col2:
+                    aranan = st.text_input("Aranacak Kelime / Sayı (Kısmi Eşleşme):")
+                
+                # FİLTRELEME MANTIĞI
+                if aranan:
+                    # 1. Sütunu string tipine çevir (Sayılar string olsun ki içinde arama yapabilelim)
+                    # 2. 'na=False' ile boş hücreleri atla
+                    # 3. 'case=False' ile büyük/küçük harf duyarlılığını kaldır
+                    try:
+                        filtreli_df = df[df[secilen_sutun].astype(str).str.contains(aranan, case=False, na=False)]
                         
-                        if data:
-                            df = pd.DataFrame(data)
-                            # Veri tiplerini string'e çevirip arama yapıyoruz (Hata riskini sıfırlar)
-                            df_filtered = df[df[secilen_sutun].astype(str) == str(aranan)]
-                            
-                            if not df_filtered.empty:
-                                st.success(f"{len(df_filtered)} sonuç bulundu.")
-                                st.dataframe(df_filtered, use_container_width=True)
-                            else:
-                                st.warning("Sonuç bulunamadı.")
-                        else:
-                            st.warning("Tablo boş.")
-        else: st.warning("Tablo yok.")
+                        st.success(f"{len(filtreli_df)} sonuç bulundu.")
+                        st.dataframe(filtreli_df, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Arama sırasında hata: {e}")
+                else:
+                    # Arama kutusu boşsa tüm tabloyu göster (veya ilk 50 kaydı)
+                    st.caption("Tüm liste görüntüleniyor...")
+                    st.dataframe(df, use_container_width=True)
+            else:
+                st.warning("Bu tablo boş.")
+        else:
+            st.warning("Veritabanında tablo yok.")
 
     # 3. YENİ KAYIT EKLEME
     elif secim == "Yeni Kayıt Ekle":
@@ -142,10 +158,15 @@ def main():
                 icerik = st.text_input("İçerik")
 
             if st.button("Kaydet"):
-                data = {"Seri No": seri, "Departman": dept, "Lokasyon": lok, "Kullanıcı": kul, "Kullanıcı PC ID": pcid, "Kullanıcı PC Adı": pcad, "Versiyon": ver, "Son Durum": durum, "Notlar": notlar, "İçerik": icerik, "Kayit_Tarihi": datetime.datetime.now().strftime("%d.%m.%Y")}
+                new_data = {
+                    "Seri No": seri, "Departman": dept, "Lokasyon": lok, 
+                    "Kullanıcı": kul, "Kullanıcı PC ID": pcid, "Kullanıcı PC Adı": pcad, 
+                    "Versiyon": ver, "Son Durum": durum, "Notlar": notlar, 
+                    "İçerik": icerik, "Kayit_Tarihi": datetime.datetime.now().strftime("%d.%m.%Y")
+                }
                 try:
-                    if doc_id: db.collection(target).document(doc_id).set(data)
-                    else: db.collection(target).add(data)
+                    if doc_id: db.collection(target).document(doc_id).set(new_data)
+                    else: db.collection(target).add(new_data)
                     st.success("Kaydedildi!")
                     log_kayit_ekle("EKLEME", "web_add", "Kayıt Eklendi", f"Tablo: {target}")
                 except Exception as e: st.error(f"Hata: {e}")
@@ -160,12 +181,15 @@ def main():
             docs = db.collection(target).stream()
             data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
             if data:
-                edited_df = st.data_editor(pd.DataFrame(data), key="editor", num_rows="fixed", column_config={"Dokuman_ID": st.column_config.TextColumn("ID", disabled=True)}, use_container_width=True)
+                edited_df = st.data_editor(pd.DataFrame(data), key="editor", num_rows="fixed", 
+                                           column_config={"Dokuman_ID": st.column_config.TextColumn("ID", disabled=True)}, 
+                                           use_container_width=True)
                 if st.button("💾 Kaydet"):
                     prog = st.progress(0)
+                    total = len(edited_df)
                     for i, row in edited_df.iterrows():
                         db.collection(target).document(row['Dokuman_ID']).set(row.drop('Dokuman_ID').to_dict(), merge=True)
-                        prog.progress((i + 1) / len(edited_df))
+                        prog.progress((i + 1) / total)
                     st.success("Güncellendi!")
                     log_kayit_ekle("GÜNCELLEME", "web_update", f"Tablo: {target}", "")
                     st.rerun()
@@ -182,7 +206,11 @@ def main():
             if data:
                 df = pd.DataFrame(data)
                 cols = ['Seç'] + [c for c in df.columns if c != 'Seç']
-                edited_df = st.data_editor(df[cols], column_config={"Seç": st.column_config.CheckboxColumn("Sil?", default=False), "Dokuman_ID": st.column_config.TextColumn("ID", disabled=True)}, disabled=[c for c in df.columns if c != 'Seç'], hide_index=True, use_container_width=True)
+                edited_df = st.data_editor(df[cols], 
+                                           column_config={"Seç": st.column_config.CheckboxColumn("Sil?", default=False), 
+                                                          "Dokuman_ID": st.column_config.TextColumn("ID", disabled=True)}, 
+                                           disabled=[c for c in df.columns if c != 'Seç'], 
+                                           hide_index=True, use_container_width=True)
                 
                 silinecekler = edited_df[edited_df['Seç'] == True]
                 if not silinecekler.empty:
@@ -207,6 +235,7 @@ def main():
             try:
                 sheets = pd.read_excel(file, sheet_name=None)
                 prog = st.progress(0)
+                total_sheets = len(sheets)
                 for i, (name, df) in enumerate(sheets.items()):
                     st.write(f"Yükleniyor: {name}")
                     df = df.dropna(how='all', axis=1).dropna(how='all', axis=0).fillna('None')
@@ -220,7 +249,7 @@ def main():
                             batch.commit()
                             batch = db.batch()
                     batch.commit()
-                    prog.progress((i + 1) / len(sheets))
+                    prog.progress((i + 1) / total_sheets)
                 st.success("Tamamlandı!")
                 log_kayit_ekle("YÜKLEME", "web_upload", "Excel Yüklendi", f"Dosya: {file.name}")
             except Exception as e: st.error(f"Hata: {e}")
@@ -229,25 +258,26 @@ def main():
     elif secim == "Raporlar":
         st.header("📊 Raporlar")
         tablo = st.selectbox("Tablo:", get_table_list())
-        docs = db.collection(tablo).stream()
-        data = [doc.to_dict() for doc in docs]
-        if data:
-            df = pd.DataFrame(data).fillna("-")
-            st.write(f"Toplam: {len(df)}")
-            c1, c2 = st.columns(2)
-            with c1:
-                sutun = st.selectbox("Grupla:", df.columns)
-                if sutun: st.bar_chart(df[sutun].value_counts())
-            with c2:
-                if 'Versiyon' in df.columns: 
-                    st.write("Versiyon Dağılımı")
-                    st.bar_chart(df['Versiyon'].value_counts(), horizontal=True)
-            
-            import io
-            buff = io.BytesIO()
-            with pd.ExcelWriter(buff) as writer: df.to_excel(writer, index=False)
-            st.download_button("Excel İndir", data=buff.getvalue(), file_name=f"Rapor_{tablo}.xlsx", mime="application/vnd.ms-excel")
-        else: st.warning("Veri yok.")
+        if st.button("Raporu Getir"):
+            docs = db.collection(tablo).stream()
+            data = [doc.to_dict() for doc in docs]
+            if data:
+                df = pd.DataFrame(data).fillna("-")
+                st.write(f"Toplam: {len(df)}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    sutun = st.selectbox("Grupla:", df.columns)
+                    if sutun: st.bar_chart(df[sutun].value_counts())
+                with c2:
+                    if 'Versiyon' in df.columns: 
+                        st.write("Versiyon Dağılımı")
+                        st.bar_chart(df['Versiyon'].value_counts(), horizontal=True)
+                
+                import io
+                buff = io.BytesIO()
+                with pd.ExcelWriter(buff) as writer: df.to_excel(writer, index=False)
+                st.download_button("Excel İndir", data=buff.getvalue(), file_name=f"Rapor_{tablo}.xlsx", mime="application/vnd.ms-excel")
+            else: st.warning("Veri yok.")
 
     # 8. LOGLAR
     elif secim == "Log Kayıtları":
@@ -256,7 +286,7 @@ def main():
             st.dataframe(pd.read_excel("Sistem_Loglari.xlsx").sort_index(ascending=False), use_container_width=True)
         else: st.info("Log yok.")
     
-    else: st.markdown("### 👋 Hoşgeldiniz")
+    else: st.markdown("### 👋 Hoşgeldiniz\nSoldaki menüden işlem seçebilirsiniz.")
 
 if __name__ == "__main__":
     main()
