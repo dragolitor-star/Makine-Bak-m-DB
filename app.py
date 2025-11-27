@@ -13,8 +13,11 @@ st.set_page_config(
     page_title="Almaxtex Envanter",
     page_icon="🏭",
     layout="wide",
-    initial_sidebar_state="collapsed" # Yan menüyü varsayılan olarak gizle
+    initial_sidebar_state="collapsed"
 )
+
+
+
 
 # --- ŞİFRELEME FONKSİYONLARI ---
 def make_hashes(password):
@@ -60,7 +63,8 @@ def create_default_admin():
             "username": "admin",
             "password": make_hashes("123456"),
             "role": "admin",
-            "permissions": ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "admin_panel"]
+            # YENİ: 'transfer' yetkisi eklendi
+            "permissions": ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "transfer", "admin_panel"]
         }
         users_ref.document("admin").set(admin_data)
 
@@ -82,12 +86,43 @@ def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
 
 # --- YARDIMCI FONKSİYONLAR ---
 def get_table_list():
-    return [coll.id for coll in db.collections() if coll.id != "system_users"]
+    # Sistem tablolarını gizle
+    return [coll.id for coll in db.collections() if coll.id not in ["system_users", "system_settings"]]
 
 def get_columns_of_table(table_name):
     docs = db.collection(table_name).limit(1).stream()
     for doc in docs: return list(doc.to_dict().keys())
     return []
+
+# --- LOKASYON YÖNETİMİ FONKSİYONLARI ---
+def get_locations():
+    """Veritabanından lokasyon listesini çeker"""
+    doc = db.collection('system_settings').document('locations').get()
+    if doc.exists:
+        return sorted(doc.to_dict().get('list', []))
+    else:
+        # Varsayılan lokasyonlar
+        defaults = ["Bursa", "Mısır", "Mardin", "İstanbul", "Depo"]
+        db.collection('system_settings').document('locations').set({'list': defaults})
+        return sorted(defaults)
+
+def add_location(new_loc):
+    """Yeni lokasyon ekler"""
+    current_locs = get_locations()
+    if new_loc and new_loc not in current_locs:
+        current_locs.append(new_loc)
+        db.collection('system_settings').document('locations').set({'list': current_locs})
+        return True
+    return False
+
+def remove_location(loc_to_remove):
+    """Lokasyon siler"""
+    current_locs = get_locations()
+    if loc_to_remove in current_locs:
+        current_locs.remove(loc_to_remove)
+        db.collection('system_settings').document('locations').set({'list': current_locs})
+        return True
+    return False
 
 # --- NAVİGASYON FONKSİYONU ---
 def sayfa_degistir(sayfa_adi):
@@ -96,7 +131,6 @@ def sayfa_degistir(sayfa_adi):
 
 # --- ANA UYGULAMA ---
 def main():
-    # Session State Tanımları
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
         st.session_state["username"] = ""
@@ -110,9 +144,16 @@ def main():
     if not st.session_state["logged_in"]:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.title("🔐 Almaxtex Giriş")
+            st.markdown("""
+                <div class="brand-header" style="justify-content: center;">
+                    <span class="brand-logo-icon">📶</span>
+                    <span class="brand-title">Almaxtex<span>Connect</span></span>
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center;'>Giriş Yap</h3>", unsafe_allow_html=True)
             username = st.text_input("Kullanıcı Adı")
             password = st.text_input("Şifre", type="password")
+            st.write("")
             if st.button("Giriş Yap", use_container_width=True):
                 user_ref = db.collection("system_users").document(username)
                 user_doc = user_ref.get()
@@ -126,37 +167,37 @@ def main():
                         st.session_state["aktif_sayfa"] = "Ana Sayfa"
                         st.success("Giriş Başarılı!")
                         st.rerun()
-                    else:
-                        st.error("Hatalı şifre!")
-                else:
-                    st.error("Kullanıcı bulunamadı!")
+                    else: st.error("Hatalı şifre!")
+                else: st.error("Kullanıcı bulunamadı!")
         return
 
-    # --- ÜST BAR (HEADER) ---
-    # Kullanıcı bilgisi ve Çıkış butonu artık en üstte
-    top_col1, top_col2 = st.columns([5, 1])
+    # --- HEADER ---
+    st.markdown("""
+        <div class="brand-header">
+            <span class="brand-logo-icon">📶</span>
+            <span class="brand-title">Almaxtex<span>DB</span></span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    top_col1, top_col2 = st.columns([6, 1])
     with top_col1:
-        st.markdown(f"### 👋 Hoşgeldin, **{st.session_state['username']}** ({st.session_state['role']})")
+        st.markdown(f"👋 Hoşgeldin, **{st.session_state['username']}**")
     with top_col2:
-        if st.button("Çıkış Yap 🚪", type="primary", use_container_width=True):
+        if st.button("Çıkış Yap", type="secondary", use_container_width=True):
             st.session_state["logged_in"] = False
             st.session_state["aktif_sayfa"] = "Ana Sayfa"
             st.rerun()
-    
     st.divider()
 
-    # --- NAVİGASYON KONTROLÜ ---
+    # --- NAVİGASYON ---
     secim = st.session_state["aktif_sayfa"]
     permissions = st.session_state["permissions"]
 
-    # Eğer Ana Sayfadaysak, Dashboard Butonlarını Göster
     if secim == "Ana Sayfa":
-        st.title("🏭 Ana Kontrol Paneli")
+        st.title("Ana Kontrol Paneli")
         st.info("Yapmak istediğiniz işlemi aşağıdan seçiniz.")
         
-        # Butonları 3 sütunlu ızgaraya yerleştiriyoruz
         col1, col2, col3 = st.columns(3)
-        
         with col1:
             if "view" in permissions:
                 if st.button("📂 Tablo Görüntüleme", use_container_width=True): sayfa_degistir("Tablo Görüntüleme")
@@ -170,6 +211,8 @@ def main():
         with col2:
             if "search" in permissions:
                 if st.button("🔍 Arama & Filtreleme", use_container_width=True): sayfa_degistir("Arama & Filtreleme")
+            if "transfer" in permissions: # YENİ BUTON
+                if st.button("🚚 Makine Transferi", use_container_width=True): sayfa_degistir("Makine Transferi")
             if "delete" in permissions:
                 if st.button("🗑️ Kayıt Silme", use_container_width=True): sayfa_degistir("Kayıt Silme")
             if "report" in permissions:
@@ -183,19 +226,18 @@ def main():
             if "logs" in permissions:
                 if st.button("📝 Log Kayıtları", use_container_width=True): sayfa_degistir("Log Kayıtları")
 
-    # --- ALT SAYFALAR ---
-    # Her sayfanın başına "Geri Dön" butonu ekliyoruz
     else:
-        if st.button("🏠 Ana Menüye Dön"):
+        if st.button("🏠 Ana Menüye Dön", type="secondary"):
             sayfa_degistir("Ana Sayfa")
-        
+        st.write("")
+
         # --- 1. TABLO GÖRÜNTÜLEME ---
         if secim == "Tablo Görüntüleme":
             st.header("📂 Tablo Görüntüleme")
             tablolar = get_table_list()
             if tablolar:
                 tablo = st.selectbox("Tablo Seçin:", tablolar)
-                docs = list(db.collection(tablo).stream()) # List'e çevirerek uzunluğunu alıyoruz
+                docs = list(db.collection(tablo).stream())
                 data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
                 if data: 
                     st.info(f"Toplam Kayıt: {len(data)}")
@@ -228,6 +270,93 @@ def main():
                     else: st.dataframe(df, use_container_width=True)
             else: st.warning("Tablo yok.")
 
+        # --- YENİ MODÜL: MAKİNE TRANSFERİ ---
+        elif secim == "Makine Transferi":
+            st.header("🚚 Makine Transferi")
+            
+            # LOKASYON YÖNETİM PANELİ
+            with st.expander("⚙️ Lokasyon Listesi Yönetimi (Ekle / Çıkar)", expanded=False):
+                loc_list = get_locations()
+                st.write(f"Mevcut Lokasyonlar: {', '.join(loc_list)}")
+                
+                c_add, c_del = st.columns(2)
+                with c_add:
+                    new_loc = st.text_input("Yeni Lokasyon Adı:")
+                    if st.button("Lokasyon Ekle"):
+                        if add_location(new_loc): st.success(f"'{new_loc}' eklendi.")
+                        else: st.warning("Zaten var veya boş.")
+                        st.rerun()
+                with c_del:
+                    del_loc = st.selectbox("Silinecek Lokasyon:", loc_list)
+                    if st.button("Lokasyonu Sil"):
+                        if remove_location(del_loc): st.success(f"'{del_loc}' silindi.")
+                        st.rerun()
+
+            st.divider()
+            
+            # TRANSFER İŞLEMİ
+            tablolar = get_table_list()
+            if tablolar:
+                target_table = st.selectbox("Transfer Yapılacak Tabloyu Seçin:", tablolar)
+                
+                docs = db.collection(target_table).stream()
+                data = [{"Dokuman_ID": doc.id, "Seç": False, **doc.to_dict()} for doc in docs]
+                
+                if data:
+                    df = pd.DataFrame(data)
+                    # 'Lokasyon' sütunu yoksa oluştur (Hata vermesin)
+                    if 'Lokasyon' not in df.columns:
+                        df['Lokasyon'] = "-"
+
+                    st.info("Transfer edilecek makineleri listeden seçin:")
+                    
+                    # Tabloyu göster (Checkbox ile)
+                    cols = ['Seç', 'Lokasyon'] + [c for c in df.columns if c not in ['Seç', 'Lokasyon', 'Dokuman_ID']]
+                    edited_df = st.data_editor(
+                        df[cols + ['Dokuman_ID']], # ID'yi en sona ekle
+                        column_config={
+                            "Seç": st.column_config.CheckboxColumn("Transfer?", default=False),
+                            "Dokuman_ID": st.column_config.TextColumn("ID", disabled=True),
+                            "Lokasyon": st.column_config.TextColumn("Mevcut Konum", disabled=True)
+                        },
+                        disabled=[c for c in df.columns if c != 'Seç'],
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                    
+                    secilenler = edited_df[edited_df['Seç'] == True]
+                    
+                    if not secilenler.empty:
+                        st.write(f"✅ **{len(secilenler)}** adet kayıt seçildi.")
+                        st.divider()
+                        
+                        # HEDEF LOKASYON SEÇİMİ
+                        hedef_lokasyon = st.selectbox("📍 Hedef Lokasyon Seçiniz:", get_locations())
+                        
+                        if st.button(f"Seçili Makineleri '{hedef_lokasyon}' Konumuna Transfer Et"):
+                            try:
+                                prog = st.progress(0)
+                                count = 0
+                                for index, row in secilenler.iterrows():
+                                    doc_id = row['Dokuman_ID']
+                                    # Sadece Lokasyon alanını güncelle
+                                    db.collection(target_table).document(doc_id).update({'Lokasyon': hedef_lokasyon})
+                                    count += 1
+                                    prog.progress(count / len(secilenler))
+                                
+                                st.success(f"Başarılı! {count} adet makine '{hedef_lokasyon}' konumuna taşındı.")
+                                log_kayit_ekle("TRANSFER", "machine_transfer", f"{count} Makine Transfer Edildi -> {hedef_lokasyon}", f"Tablo: {target_table}")
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"Transfer sırasında hata: {e}")
+                    else:
+                        st.info("Lütfen listeden en az bir makine seçin.")
+                else:
+                    st.warning("Bu tablo boş.")
+            else:
+                st.warning("Tablo bulunamadı.")
+
         # --- 3. YENİ KAYIT EKLEME ---
         elif secim == "Yeni Kayıt Ekle":
             st.header("➕ Yeni Kayıt Ekle")
@@ -239,7 +368,7 @@ def main():
                 with c1:
                     seri = st.text_input("Seri No")
                     dept = st.text_input("Departman")
-                    lok = st.text_input("Lokasyon")
+                    lok = st.selectbox("Lokasyon", get_locations()) # Lokasyon listesinden seçim
                     kul = st.text_input("Kullanıcı")
                     pcid = st.text_input("PC ID")
                 with c2:
@@ -385,7 +514,8 @@ def main():
         # --- 10. ADMIN PANELİ ---
         elif secim == "Kullanıcı Yönetimi (Admin)":
             st.header("👑 Kullanıcı Yönetimi")
-            with st.expander("Yeni Kullanıcı Ekle"):
+            
+            with st.expander("Yeni Kullanıcı Ekle", expanded=True):
                 with st.form("add_user"):
                     nu = st.text_input("Kullanıcı Adı")
                     np = st.text_input("Şifre", type="password")
@@ -402,6 +532,7 @@ def main():
                     if c3.checkbox("Sil (Kayıt)"): perms.append("delete")
                     if c3.checkbox("Sil (Tablo)"): perms.append("delete_table")
                     if c4.checkbox("Log"): perms.append("logs")
+                    if c4.checkbox("Transfer"): perms.append("transfer") # YENİ
                     if nr == "admin": perms.append("admin_panel")
                     
                     if st.form_submit_button("Oluştur"):
@@ -416,13 +547,17 @@ def main():
             if users:
                 udf = pd.DataFrame(users).drop(columns=["password"], errors="ignore")
                 st.dataframe(udf, use_container_width=True)
-                to_del = st.selectbox("Silinecek Kullanıcı:", udf['username'])
-                if st.button("Sil"):
-                    if to_del != st.session_state["username"]:
-                        db.collection("system_users").document(to_del).delete()
-                        st.success("Silindi.")
-                        st.rerun()
-                    else: st.error("Kendinizi silemezsiniz.")
+                
+                c_del1, c_del2 = st.columns([3,1])
+                with c_del1:
+                    to_del = st.selectbox("Silinecek Kullanıcı:", udf['username'])
+                with c_del2:
+                    if st.button("Kullanıcıyı Sil", type="secondary", use_container_width=True):
+                        if to_del != st.session_state["username"]:
+                            db.collection("system_users").document(to_del).delete()
+                            st.success("Silindi.")
+                            st.rerun()
+                        else: st.error("Kendinizi silemezsiniz.")
 
 if __name__ == "__main__":
     main()
