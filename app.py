@@ -214,74 +214,130 @@ def main():
     # 4. KAYIT GÜNCELLEME (HATA DÜZELTİLDİ)
     elif secim == "Kayıt Güncelle":
         st.header("✏️ Kayıt Güncelleme")
-        st.info("Önce tabloyu seçin, ID'yi bulun, ardından güncellemek istediğiniz alanı girin.")
         
         tablolar = get_table_list()
         if tablolar:
             target_table = st.selectbox("Tablo Seçin:", tablolar)
             
-            # Kullanıcıya kolaylık olsun diye önce verileri gösterelim
-            with st.expander("Tablodaki Verileri Görüntüle (ID Bulmak İçin)"):
-                docs = db.collection(target_table).limit(50).stream()
-                data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
-                if data:
-                    st.dataframe(pd.DataFrame(data))
+            # Verileri çekiyoruz
+            docs = db.collection(target_table).stream()
+            data = []
+            for doc in docs:
+                d = doc.to_dict()
+                d['Dokuman_ID'] = doc.id
+                data.append(d)
+            
+            if data:
+                df = pd.DataFrame(data)
+                
+                # --- AKILLI SEÇİM MEKANİZMASI ---
+                # Kullanıcının kaydı tanıması için bir "Etiket" sütunu oluşturuyoruz.
+                # Eğer 'Seri No' veya 'Kullanıcı' sütunu yoksa '-' koyar.
+                df['Etiket'] = df.apply(lambda x: f"Seri: {x.get('Seri No', '-')} | Kul: {x.get('Kullanıcı', '-')} | ID: {x['Dokuman_ID'][:5]}...", axis=1)
+                
+                st.info("Aşağıdaki listeden güncellemek istediğiniz kaydı seçin (Yazarak arayabilirsiniz):")
+                
+                # Selectbox ile seçim yaptırıyoruz
+                secilen_etiket = st.selectbox("Kayıt Seçiniz:", df['Etiket'])
+                
+                # Seçilen etikete göre o satırın tüm verisini buluyoruz
+                secilen_satir = df[df['Etiket'] == secilen_etiket].iloc[0]
+                doc_id = secilen_satir['Dokuman_ID']
+                
+                st.divider()
+                st.write(f"**Seçilen Kayıt:** {secilen_etiket}")
+                
+                # Sütun seçimi
+                # (Dokuman_ID ve Etiket sütunlarını güncelleme listesinden çıkarıyoruz)
+                guncellenebilir_sutunlar = [col for col in df.columns if col not in ['Dokuman_ID', 'Etiket']]
+                field_name = st.selectbox("Değiştirilecek Sütun:", guncellenebilir_sutunlar)
+                
+                # Mevcut değeri kullanıcıya gösteriyoruz (Büyük kolaylık!)
+                mevcut_deger = secilen_satir.get(field_name, "")
+                st.warning(f"Şu anki değer: {mevcut_deger}")
+                
+                new_val = st.text_input("Yeni Değer:", value=str(mevcut_deger))
 
-            col1, col2 = st.columns(2)
-            with col1:
-                doc_id = st.text_input("Değiştirilecek Dokuman ID'sini yapıştırın:")
-            with col2:
-                sutunlar = get_columns_of_table(target_table)
-                field_name = st.selectbox("Değiştirilecek Sütun:", sutunlar) if sutunlar else st.text_input("Sütun Adı:")
-
-            new_val = st.text_input("Yeni Değer:")
-
-            if st.button("Güncelle"):
-                if doc_id and field_name:
-                    try:
-                        # Sayısal dönüşüm denemesi (Opsiyonel)
+                if st.button("Güncelle"):
+                    if new_val != str(mevcut_deger): # Değer değişmişse işlem yap
                         try:
-                            val_to_write = float(new_val)
-                        except:
-                            val_to_write = new_val
+                            # Sayısal dönüşüm denemesi
+                            try:
+                                val_to_write = float(new_val)
+                            except:
+                                val_to_write = new_val
 
-                        doc_ref = db.collection(target_table).document(doc_id)
-                        
-                        # Belgenin var olup olmadığını kontrol et
-                        if doc_ref.get().exists:
-                            # --- DÜZELTME BURADA ---
-                            # FieldPath nesnesini kaldırdık.
-                            # Sözlük içine direkt string (field_name) veriyoruz.
-                            # Firestore Python SDK'sı "Son Durum" gibi boşluklu stringleri dict içinde kabul eder.
+                            doc_ref = db.collection(target_table).document(doc_id)
+                            
+                            # Direkt string key kullanarak güncelleme (FieldPath hatası almamak için)
                             doc_ref.update({field_name: val_to_write})
                             
-                            st.success("Güncelleme Başarılı!")
+                            st.success(f"Başarılı! '{field_name}' alanı güncellendi.")
                             log_kayit_ekle("GÜNCELLEME", "web_modify", f"Kayıt Güncellendi: {doc_id}", f"{field_name} -> {new_val}")
-                        else:
-                            st.error("Bu ID'ye sahip döküman bulunamadı.")
-                    except Exception as e:
-                        st.error(f"Hata: {e}")
-                        # Detaylı hata görmek isterseniz traceback ekleyebilirsiniz
-                        # st.text(traceback.format_exc())
-
+                            
+                            # Sayfayı yenilemeye gerek kalmadan kullanıcıya mesaj verelim
+                            st.caption("Not: Tabloyu güncel halini görmek için sayfayı yenileyebilirsiniz.")
+                            
+                        except Exception as e:
+                            st.error(f"Hata: {e}")
+                    else:
+                        st.info("Değişiklik yapmadınız.")
+            else:
+                st.warning("Bu tabloda güncellenecek kayıt bulunamadı.")
     # 5. KAYIT SİLME
     elif secim == "Kayıt Silme":
         st.header("🗑️ Kayıt Silme")
-        st.warning("Bu işlem geri alınamaz!")
         
         tablolar = get_table_list()
         if tablolar:
             target_table = st.selectbox("Tablo Seçin:", tablolar)
-            doc_id = st.text_input("Silinecek Dokuman ID:")
             
-            if st.button("Kaydı Sil"):
-                if doc_id:
-                    try:
-                        db.collection(target_table).document(doc_id).delete()
-                        st.success("Kayıt silindi.")
-                        log_kayit_ekle("SİLME", "web_remove", f"Kayıt Silindi: {doc_id}", f"Tablo: {target_table}")
-                    except Exception as e:
-                        st.error(f"Silme hatası: {e}")
+            # Verileri çekiyoruz
+            docs = db.collection(target_table).stream()
+            data = []
+            for doc in docs:
+                d = doc.to_dict()
+                d['Dokuman_ID'] = doc.id
+                data.append(d)
+            
+            if data:
+                df = pd.DataFrame(data)
+                
+                # --- AKILLI SEÇİM MEKANİZMASI ---
+                df['Etiket'] = df.apply(lambda x: f"Seri: {x.get('Seri No', '-')} | Kul: {x.get('Kullanıcı', '-')} | ID: {x['Dokuman_ID']}", axis=1)
+                
+                st.warning("DİKKAT: Seçilen kayıt kalıcı olarak silinecektir!")
+                
+                # Selectbox ile seçim
+                secilen_etiket = st.selectbox("Silinecek Kaydı Seçiniz:", df['Etiket'])
+                
+                # Seçilen satırın ID'sini bul
+                secilen_satir = df[df['Etiket'] == secilen_etiket].iloc[0]
+                doc_id = secilen_satir['Dokuman_ID']
+                
+                # Silmeden önce detay gösterelim ki yanlışlık olmasın
+                with st.expander("Silinecek Kaydın Detaylarını Gör"):
+                    st.write(secilen_satir.drop('Etiket')) # Etiket sütunu hariç göster
+                
+                # Onay Kutusu
+                onay = st.checkbox("Bu kaydı silmek istediğime eminim.")
+                
+                if st.button("Kaydı Sil"):
+                    if onay:
+                        try:
+                            db.collection(target_table).document(doc_id).delete()
+                            st.success("Kayıt başarıyla silindi.")
+                            log_kayit_ekle("SİLME", "web_remove", f"Kayıt Silindi: {doc_id}", f"Tablo: {target_table}")
+                            
+                            # İşlem bitince butonu tekrar tıklanmaz hale getirmek için:
+                            st.rerun() 
+                        except Exception as e:
+                            st.error(f"Silme hatası: {e}")
+                    else:
+                        st.error("Lütfen önce onay kutusunu işaretleyin.")
+            else:
+                st.warning("Bu tabloda silinecek kayıt yok.")
+   
 
     # 6. EXCEL'DEN TOPLU YÜKLEME
     elif secim == "Toplu Tablo Yükle (Excel)":
@@ -405,4 +461,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
