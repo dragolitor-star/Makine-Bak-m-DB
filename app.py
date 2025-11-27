@@ -2,7 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
-# --- İMPORT DÜZELTMESİ YAPILDI ---
+# --- IMPORT AYARLARI ---
 from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud.firestore_v1.field_path import FieldPath 
 import datetime
@@ -111,7 +111,7 @@ def main():
         else:
             st.warning("Veritabanında henüz tablo yok.")
 
-    # 2. ARAMA VE FİLTRELEME
+    # 2. ARAMA VE FİLTRELEME (DÜZELTİLDİ: FieldPath Eklendi)
     elif secim == "Arama & Filtreleme":
         st.header("🔍 Arama ve Filtreleme")
         tablolar = get_table_list()
@@ -121,7 +121,6 @@ def main():
                 secilen_tablo = st.selectbox("Tablo Seçin:", tablolar)
             with col2:
                 raw_sutunlar = get_columns_of_table(secilen_tablo)
-                # Unnamed sütunları gizle
                 sutunlar = [col for col in raw_sutunlar if "Unnamed" not in str(col)]
                 secilen_sutun = st.selectbox("Hangi Sütunda Arama Yapılacak?", sutunlar) if sutunlar else None
             
@@ -135,7 +134,11 @@ def main():
                         except ValueError:
                             val = aranan_deger
                         
-                        docs = db.collection(secilen_tablo).where(filter=FieldFilter(secilen_sutun, "==", val)).stream()
+                        # --- DÜZELTME BURADA ---
+                        # FieldPath(secilen_sutun) kullanarak boşluklu isimlerin (MAKİNA MODELİ)
+                        # hata vermesini engelliyoruz.
+                        docs = db.collection(secilen_tablo).where(filter=FieldFilter(FieldPath(secilen_sutun), "==", val)).stream()
+                        
                         data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
                         
                         if data:
@@ -201,7 +204,6 @@ def main():
             
             if data:
                 df = pd.DataFrame(data)
-                # Data Editor
                 edited_df = st.data_editor(
                     df,
                     key="data_editor",
