@@ -2,8 +2,8 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
-# --- IMPORT AYARLARI ---
-from google.cloud.firestore_v1.base_query import FieldFilter
+# --- İMPORTLAR SADELEŞTİRİLDİ ---
+# FieldFilter kaldırıldı çünkü hata veriyordu, sadece FieldPath yeterli.
 from google.cloud.firestore_v1.field_path import FieldPath 
 import datetime
 import traceback
@@ -111,7 +111,7 @@ def main():
         else:
             st.warning("Veritabanında henüz tablo yok.")
 
-    # 2. ARAMA VE FİLTRELEME (DÜZELTİLDİ: FieldPath Eklendi)
+    # 2. ARAMA VE FİLTRELEME (DÜZELTİLDİ: FieldFilter kaldırıldı)
     elif secim == "Arama & Filtreleme":
         st.header("🔍 Arama ve Filtreleme")
         tablolar = get_table_list()
@@ -134,10 +134,10 @@ def main():
                         except ValueError:
                             val = aranan_deger
                         
-                        # --- DÜZELTME BURADA ---
-                        # FieldPath(secilen_sutun) kullanarak boşluklu isimlerin (MAKİNA MODELİ)
-                        # hata vermesini engelliyoruz.
-                        docs = db.collection(secilen_tablo).where(filter=FieldFilter(FieldPath(secilen_sutun), "==", val)).stream()
+                        # --- KRİTİK DÜZELTME BURADA ---
+                        # FieldFilter kullanmadan, doğrudan .where() içine parametre veriyoruz.
+                        # FieldPath(secilen_sutun) sayesinde boşluklu isimler (MAKİNA ADI) hata vermez.
+                        docs = db.collection(secilen_tablo).where(FieldPath(secilen_sutun), "==", val).stream()
                         
                         data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
                         
