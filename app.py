@@ -2,8 +2,9 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
-# --- İMPORTLAR GÜNCELLENDİ ---
-from google.cloud.firestore_v1.base_query import FieldFilter
+# --- KRİTİK IMPORT ---
+# Sadece FieldPath yeterli, FieldFilter kullanmayacağız.
+from google.cloud.firestore import FieldPath
 import datetime
 import traceback
 import os
@@ -20,7 +21,7 @@ st.set_page_config(
 @st.cache_resource
 def init_db():
     if not firebase_admin._apps:
-        # 1. Streamlit Secrets Kontrolü
+        # 1. Streamlit Secrets (Bulut)
         if "firebase" in st.secrets:
             try:
                 firebase_creds = dict(st.secrets["firebase"])
@@ -33,7 +34,7 @@ def init_db():
                 st.error(f"Secrets hatası: {e}")
                 st.stop()
         
-        # 2. Local Dosya Kontrolü
+        # 2. Local Dosya
         elif os.path.exists('license-machinerydb-firebase-adminsdk-fbsvc-7458edd97c.json'):
             cred = credentials.Certificate('license-machinerydb-firebase-adminsdk-fbsvc-7458edd97c.json')
             firebase_admin.initialize_app(cred)
@@ -110,7 +111,7 @@ def main():
         else:
             st.warning("Veritabanında henüz tablo yok.")
 
-    # 2. ARAMA VE FİLTRELEME (DÜZELTİLDİ: FieldFilter Kullanıldı)
+    # 2. ARAMA VE FİLTRELEME (DÜZELTİLDİ: FieldPath Eklendi)
     elif secim == "Arama & Filtreleme":
         st.header("🔍 Arama ve Filtreleme")
         tablolar = get_table_list()
@@ -136,9 +137,9 @@ def main():
                             val = aranan_deger
                         
                         # --- KRİTİK DÜZELTME BURADA ---
-                        # FieldFilter kullanıyoruz ve içine direkt string (secilen_sutun) veriyoruz.
-                        # FieldFilter boşluklu isimleri otomatik yönetir.
-                        docs = db.collection(secilen_tablo).where(filter=FieldFilter(secilen_sutun, "==", val)).stream()
+                        # FieldPath kullanımı zorunludur çünkü "MAKİNA MODELİ" gibi boşluklu isimler var.
+                        # FieldFilter kullanmıyoruz, direkt .where() kullanıyoruz.
+                        docs = db.collection(secilen_tablo).where(FieldPath(secilen_sutun), "==", val).stream()
                         
                         data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
                         
