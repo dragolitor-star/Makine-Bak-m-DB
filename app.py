@@ -137,7 +137,13 @@ def main():
             with col1:
                 secilen_tablo = st.selectbox("Tablo Seçin:", tablolar)
             with col2:
-                sutunlar = get_columns_of_table(secilen_tablo)
+                raw_sutunlar = get_columns_of_table(secilen_tablo)
+                
+                # --- DÜZELTME BURADA ---
+                # "Unnamed" kelimesi geçen sütunları listeden çıkarıyoruz.
+                # Böylece kullanıcı hatalı sütunları seçemez ve program çökmez.
+                sutunlar = [col for col in raw_sutunlar if "Unnamed" not in str(col)]
+                
                 secilen_sutun = st.selectbox("Hangi Sütunda Arama Yapılacak?", sutunlar) if sutunlar else None
             
             aranan_deger = st.text_input("Aranacak Değeri Girin:")
@@ -150,6 +156,9 @@ def main():
                             val = float(aranan_deger)
                         except ValueError:
                             val = aranan_deger
+                        
+                        # FieldPath kullanarak boşluklu isimleri de destekliyoruz
+                        from google.cloud.firestore import FieldPath
                         
                         docs = db.collection(secilen_tablo).where(filter=FieldFilter(secilen_sutun, "==", val)).stream()
                         data = []
@@ -492,6 +501,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
