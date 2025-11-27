@@ -6,6 +6,7 @@ from google.cloud.firestore_v1.field_path import FieldPath
 import datetime
 import traceback
 import os
+import hashlib # Şifreleme için
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -14,6 +15,15 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- ŞİFRELEME FONKSİYONU ---
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text:
+        return True
+    return False
 
 # --- VERİTABANI BAĞLANTISI ---
 @st.cache_resource
@@ -43,8 +53,30 @@ except Exception as e:
     st.error(f"Veritabanı bağlantı hatası: {e}")
     st.stop()
 
+# --- OTOMATİK İLK KULLANICI OLUŞTURMA (KURULUM) ---
+def create_default_admin():
+    users_ref = db.collection('system_users')
+    docs = users_ref.limit(1).stream()
+    if not list(docs): # Eğer hiç kullanıcı yoksa
+        admin_data = {
+            "username": "admin",
+            "password": make_hashes("123456"),
+            "role": "admin",
+            "permissions": ["view", "search", "add", "update", "delete", "upload", "report", "logs", "admin_panel"]
+        }
+        users_ref.document("admin").set(admin_data)
+        return True
+    return False
+
+# Kurulum kontrolü
+create_default_admin()
+
 # --- LOGLAMA FONKSİYONU ---
 def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
+    # Loglarda kullanıcının kim olduğunu da tutalım
+    kullanici = st.session_state.get("username", "Bilinmeyen")
+    mesaj = f"[{kullanici}] {mesaj}"
+    
     log_dosya_adi = "Sistem_Loglari.xlsx"
     zaman = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     yeni_kayit = {
@@ -60,7 +92,8 @@ def log_kayit_ekle(islem_turu, fonksiyon_adi, mesaj, teknik_detay="-"):
 
 # --- YARDIMCI FONKSİYONLAR ---
 def get_table_list():
-    return [coll.id for coll in db.collections()]
+    # system_users tablosunu listede gösterme
+    return [coll.id for coll in db.collections() if coll.id != "system_users"]
 
 def get_columns_of_table(table_name):
     docs = db.collection(table_name).limit(1).stream()
@@ -69,15 +102,71 @@ def get_columns_of_table(table_name):
 
 # --- ANA UYGULAMA ---
 def main():
+    # Session State Başlatma
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+        st.session_state["username"] = ""
+        st.session_state["permissions"] = []
+        st.session_state["role"] = ""
+
+    # --- GİRİŞ EKRANI ---
+    if not st.session_state["logged_in"]:
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            st.title("🔐 Giriş Yap")
+            username = st.text_input("Kullanıcı Adı")
+            password = st.text_input("Şifre", type="password")
+            
+            if st.button("Giriş"):
+                user_ref = db.collection("system_users").document(username)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    if check_hashes(password, user_data['password']):
+                        st.session_state["logged_in"] = True
+                        st.session_state["username"] = username
+                        st.session_state["role"] = user_data.get("role", "user")
+                        st.session_state["permissions"] = user_data.get("permissions", [])
+                        st.success("Giriş Başarılı!")
+                        st.rerun()
+                    else:
+                        st.error("Hatalı şifre!")
+                else:
+                    st.error("Kullanıcı bulunamadı!")
+        return # Giriş yapılmadıysa aşağıyı çalıştırma
+
+    # --- GİRİŞ YAPILMIŞSA BURADAN DEVAM ET ---
+    
+    # Kullanıcı Bilgisi ve Çıkış Butonu
+    with st.sidebar:
+        st.write(f"👤 **{st.session_state['username']}** ({st.session_state['role']})")
+        if st.button("Çıkış Yap"):
+            st.session_state["logged_in"] = False
+            st.rerun()
+        st.divider()
+
     st.title("🏭 Almaxtex Konfeksiyon Makine Bakım Veritabanı")
     st.sidebar.header("İşlem Menüsü")
     
-    # MENÜYE "Tablo Silme" EKLENDİ
-    secim = st.sidebar.radio("İşlem Seçin:", 
-                             ["Ana Sayfa", "Tablo Görüntüleme", "Arama & Filtreleme", 
-                              "Yeni Kayıt Ekle", "Kayıt Güncelle", "Kayıt Silme", 
-                              "Tablo Silme", # YENİ
-                              "Toplu Tablo Yükle (Excel)", "Raporlar", "Log Kayıtları"])
+    # --- DİNAMİK MENÜ (YETKİYE GÖRE) ---
+    menu_options = ["Ana Sayfa"]
+    permissions = st.session_state["permissions"]
+    
+    if "view" in permissions: menu_options.append("Tablo Görüntüleme")
+    if "search" in permissions: menu_options.append("Arama & Filtreleme")
+    if "add" in permissions: menu_options.append("Yeni Kayıt Ekle")
+    if "update" in permissions: menu_options.append("Kayıt Güncelle")
+    if "delete" in permissions: menu_options.append("Kayıt Silme")
+    if "delete_table" in permissions: menu_options.append("Tablo Silme")
+    if "upload" in permissions: menu_options.append("Toplu Tablo Yükle (Excel)")
+    if "report" in permissions: menu_options.append("Raporlar")
+    if "logs" in permissions: menu_options.append("Log Kayıtları")
+    if "admin_panel" in permissions: menu_options.append("Kullanıcı Yönetimi (Admin)")
+
+    secim = st.sidebar.radio("İşlem Seçin:", menu_options)
+
+    # --- İŞLEM BLOKLARI ---
 
     # 1. TABLO GÖRÜNTÜLEME
     if secim == "Tablo Görüntüleme":
@@ -97,13 +186,11 @@ def main():
     elif secim == "Arama & Filtreleme":
         st.header("🔍 Dinamik Arama ve Filtreleme")
         st.info("Tabloyu seçin, bir sütun belirleyin ve yazmaya başlayın.")
-        
         tablolar = get_table_list()
         if tablolar:
             secilen_tablo = st.selectbox("Tablo Seçin:", tablolar)
             docs = db.collection(secilen_tablo).stream()
             data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
-            
             if data:
                 df = pd.DataFrame(data)
                 c1, c2 = st.columns(2)
@@ -112,17 +199,14 @@ def main():
                     secilen_sutun = st.selectbox("Hangi Sütunda Arama Yapılacak?", cols)
                 with c2:
                     aranan = st.text_input("Aranacak Değer:")
-                
                 if aranan:
                     try:
                         df_filtered = df[df[secilen_sutun].astype(str).str.contains(aranan, case=False, na=False)]
                         st.success(f"{len(df_filtered)} sonuç bulundu.")
                         st.dataframe(df_filtered, use_container_width=True)
                     except Exception as e: st.error(f"Hata: {e}")
-                else:
-                    st.dataframe(df, use_container_width=True)
+                else: st.dataframe(df, use_container_width=True)
             else: st.warning("Bu tablo boş.")
-        else: st.warning("Tablo yok.")
 
     # 3. YENİ KAYIT EKLEME
     elif secim == "Yeni Kayıt Ekle":
@@ -168,10 +252,9 @@ def main():
                 edited_df = st.data_editor(pd.DataFrame(data), key="editor", num_rows="fixed", column_config={"Dokuman_ID": st.column_config.TextColumn("ID", disabled=True)}, use_container_width=True)
                 if st.button("💾 Kaydet"):
                     prog = st.progress(0)
-                    total = len(edited_df)
                     for i, row in edited_df.iterrows():
                         db.collection(target).document(row['Dokuman_ID']).set(row.drop('Dokuman_ID').to_dict(), merge=True)
-                        prog.progress((i + 1) / total)
+                        prog.progress((i + 1) / len(edited_df))
                     st.success("Güncellendi!")
                     log_kayit_ekle("GÜNCELLEME", "web_update", f"Tablo: {target}", "")
                     st.rerun()
@@ -205,53 +288,31 @@ def main():
                         st.rerun()
             else: st.warning("Veri yok.")
 
-    # 6. TABLO SİLME (YENİ EKLENDİ)
+    # 6. TABLO SİLME
     elif secim == "Tablo Silme":
-        st.header("💣 Tablo Silme (Tüm Veri)")
-        st.error("DİKKAT: Bu işlem geri alınamaz! Seçilen tabloyu ve içindeki tüm verileri kalıcı olarak siler.")
-        
+        st.header("💣 Tablo Silme")
+        st.error("DİKKAT: Bu işlem geri alınamaz!")
         tablolar = get_table_list()
         if tablolar:
-            target_table = st.selectbox("Silinecek Tabloyu Seçin:", tablolar)
-            
-            # Veri sayısını gösterelim
+            target_table = st.selectbox("Silinecek Tablo:", tablolar)
             docs = list(db.collection(target_table).stream())
-            kayit_sayisi = len(docs)
-            st.warning(f"Seçilen Tablo: **{target_table}** | İçindeki Kayıt Sayısı: **{kayit_sayisi}**")
-            
-            if kayit_sayisi > 0:
-                # Güvenlik Onayı: Tablo adını yazdır
-                confirmation = st.text_input(f"Onaylamak için tablonun adını ({target_table}) aynen yazın:")
-                
-                if st.button("TABLOYU KALICI OLARAK SİL"):
-                    if confirmation == target_table:
-                        try:
-                            progress_bar = st.progress(0)
-                            batch = db.batch()
-                            deleted_count = 0
-                            
-                            for doc in docs:
-                                doc.reference.delete()
-                                deleted_count += 1
-                                # Görsel ilerleme
-                                progress_bar.progress(deleted_count / kayit_sayisi)
-                            
-                            st.success(f"'{target_table}' tablosu başarıyla silindi.")
-                            log_kayit_ekle("KRİTİK_SİLME", "web_delete_table", f"Tablo Silindi: {target_table}", f"Silinen Kayıt: {deleted_count}")
-                            
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Silme hatası: {e}")
-                    else:
-                        st.error("Tablo adı eşleşmedi. İşlem iptal edildi.")
+            st.warning(f"Kayıt Sayısı: {len(docs)}")
+            if len(docs) > 0:
+                if st.text_input(f"Onay için '{target_table}' yazın:") == target_table:
+                    if st.button("SİL"):
+                        prog = st.progress(0)
+                        count = 0
+                        for doc in docs:
+                            doc.reference.delete()
+                            count += 1
+                            prog.progress(count / len(docs))
+                        st.success("Tablo Silindi.")
+                        log_kayit_ekle("KRİTİK_SİLME", "web_delete_table", f"Tablo Silindi: {target_table}", "")
+                        st.rerun()
             else:
-                # Boş tablo (Aslında Firestore'da boş tablo olmaz ama yine de)
-                if st.button("Boş Tabloyu Temizle"):
-                     # Boş olsa bile streamlit listesinde görünüyorsa önbellek temizlenmeli
-                     st.success("Tablo zaten boş.")
-                     st.rerun()
-        else:
-            st.warning("Silinecek tablo bulunamadı.")
+                if st.button("Boş Tabloyu Kaldır"):
+                    st.success("Temizlendi.")
+                    st.rerun()
 
     # 7. EXCEL YÜKLEME
     elif secim == "Toplu Tablo Yükle (Excel)":
@@ -268,8 +329,7 @@ def main():
                     batch = db.batch()
                     count = 0
                     for _, row in df.iterrows():
-                        doc_ref = db.collection(name).document()
-                        batch.set(doc_ref, row.to_dict())
+                        batch.set(db.collection(name).document(), row.to_dict())
                         count += 1
                         if count % 400 == 0: 
                             batch.commit()
@@ -283,30 +343,27 @@ def main():
     # 8. RAPORLAR
     elif secim == "Raporlar":
         st.header("📊 Raporlar")
-        tablolar = get_table_list()
-        if tablolar:
-            tablo = st.selectbox("Tablo:", tablolar)
-            if st.button("Raporu Getir"):
-                docs = db.collection(tablo).stream()
-                data = [doc.to_dict() for doc in docs]
-                if data:
-                    df = pd.DataFrame(data).fillna("-")
-                    st.write(f"Toplam: {len(df)}")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        sutun = st.selectbox("Grupla:", df.columns)
-                        if sutun: st.bar_chart(df[sutun].value_counts())
-                    with c2:
-                        if 'Versiyon' in df.columns: 
-                            st.write("Versiyon Dağılımı")
-                            st.bar_chart(df['Versiyon'].value_counts(), horizontal=True)
-                    
-                    import io
-                    buff = io.BytesIO()
-                    with pd.ExcelWriter(buff) as writer: df.to_excel(writer, index=False)
-                    st.download_button("Excel İndir", data=buff.getvalue(), file_name=f"Rapor_{tablo}.xlsx", mime="application/vnd.ms-excel")
-                else: st.warning("Veri yok.")
-        else: st.warning("Tablo yok.")
+        tablo = st.selectbox("Tablo:", get_table_list())
+        if st.button("Raporu Getir"):
+            docs = db.collection(tablo).stream()
+            data = [doc.to_dict() for doc in docs]
+            if data:
+                df = pd.DataFrame(data).fillna("-")
+                st.write(f"Toplam: {len(df)}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    sutun = st.selectbox("Grupla:", df.columns)
+                    if sutun: st.bar_chart(df[sutun].value_counts())
+                with c2:
+                    if 'Versiyon' in df.columns: 
+                        st.write("Versiyon Dağılımı")
+                        st.bar_chart(df['Versiyon'].value_counts(), horizontal=True)
+                
+                import io
+                buff = io.BytesIO()
+                with pd.ExcelWriter(buff) as writer: df.to_excel(writer, index=False)
+                st.download_button("Excel İndir", data=buff.getvalue(), file_name=f"Rapor_{tablo}.xlsx", mime="application/vnd.ms-excel")
+            else: st.warning("Veri yok.")
 
     # 9. LOGLAR
     elif secim == "Log Kayıtları":
@@ -314,8 +371,68 @@ def main():
         if os.path.exists("Sistem_Loglari.xlsx"):
             st.dataframe(pd.read_excel("Sistem_Loglari.xlsx").sort_index(ascending=False), use_container_width=True)
         else: st.info("Log yok.")
-    
-    else: st.markdown("### 👋 Hoşgeldiniz")
+
+    # 10. ADMIN PANELİ (KULLANICI YÖNETİMİ)
+    elif secim == "Kullanıcı Yönetimi (Admin)":
+        st.header("👑 Kullanıcı Yönetimi")
+        
+        # Yeni Kullanıcı Ekle
+        with st.expander("Yeni Kullanıcı Ekle", expanded=True):
+            with st.form("add_user_form"):
+                new_user = st.text_input("Kullanıcı Adı")
+                new_pass = st.text_input("Şifre", type="password")
+                new_role = st.selectbox("Rol", ["user", "admin"])
+                st.write("Yetkiler:")
+                c1, c2, c3 = st.columns(3)
+                perms = []
+                if c1.checkbox("Görüntüleme", value=True): perms.append("view")
+                if c1.checkbox("Arama", value=True): perms.append("search")
+                if c1.checkbox("Raporlama"): perms.append("report")
+                if c2.checkbox("Ekleme"): perms.append("add")
+                if c2.checkbox("Güncelleme"): perms.append("update")
+                if c2.checkbox("Excel Yükleme"): perms.append("upload")
+                if c3.checkbox("Silme (Kayıt)"): perms.append("delete")
+                if c3.checkbox("Silme (Tablo)"): perms.append("delete_table")
+                if c3.checkbox("Log Görme"): perms.append("logs")
+                if new_role == "admin": perms.append("admin_panel")
+
+                if st.form_submit_button("Kullanıcıyı Oluştur"):
+                    if new_user and new_pass:
+                        user_data = {
+                            "username": new_user,
+                            "password": make_hashes(new_pass),
+                            "role": new_role,
+                            "permissions": perms
+                        }
+                        db.collection("system_users").document(new_user).set(user_data)
+                        st.success(f"{new_user} oluşturuldu.")
+                        log_kayit_ekle("ADMIN", "user_create", f"Kullanıcı Eklendi: {new_user}", "")
+                    else:
+                        st.error("Kullanıcı adı ve şifre gerekli.")
+
+        # Mevcut Kullanıcıları Listele ve Sil
+        st.subheader("Mevcut Kullanıcılar")
+        users = db.collection("system_users").stream()
+        user_list = [u.to_dict() for u in users]
+        
+        if user_list:
+            user_df = pd.DataFrame(user_list)
+            # Şifreleri gizle
+            if "password" in user_df.columns: user_df = user_df.drop(columns=["password"])
+            
+            st.dataframe(user_df, use_container_width=True)
+            
+            user_to_delete = st.selectbox("Silinecek Kullanıcı:", [u['username'] for u in user_list])
+            if st.button("Kullanıcıyı Sil"):
+                if user_to_delete != st.session_state["username"]: # Kendini silemezsin
+                    db.collection("system_users").document(user_to_delete).delete()
+                    st.success("Silindi.")
+                    st.rerun()
+                else:
+                    st.error("Kendinizi silemezsiniz.")
+
+    else:
+        st.markdown("### 👋 Hoşgeldiniz")
 
 if __name__ == "__main__":
     main()
