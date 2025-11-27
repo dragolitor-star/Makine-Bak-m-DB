@@ -2,9 +2,9 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
-# --- İMPORT DÜZELTMESİ (Kesin Çözüm) ---
-# FieldPath'i direkt çağırmak yerine modül olarak alıyoruz
-from google.cloud import firestore as gc_firestore
+# --- KESİN ÇÖZÜM İMPORTU ---
+# FieldPath'i kaynak dosyasından (v1) doğrudan çekiyoruz.
+from google.cloud.firestore_v1.field_path import FieldPath
 import datetime
 import traceback
 import os
@@ -111,7 +111,7 @@ def main():
         else:
             st.warning("Veritabanında henüz tablo yok.")
 
-    # 2. ARAMA VE FİLTRELEME
+    # 2. ARAMA VE FİLTRELEME (DÜZELTİLDİ: FieldPath v1'den import edildi)
     elif secim == "Arama & Filtreleme":
         st.header("🔍 Arama ve Filtreleme")
         tablolar = get_table_list()
@@ -121,7 +121,6 @@ def main():
                 secilen_tablo = st.selectbox("Tablo Seçin:", tablolar)
             with col2:
                 raw_sutunlar = get_columns_of_table(secilen_tablo)
-                # Unnamed sütunları gizle
                 sutunlar = [col for col in raw_sutunlar if "Unnamed" not in str(col)]
                 secilen_sutun = st.selectbox("Hangi Sütunda Arama Yapılacak?", sutunlar) if sutunlar else None
             
@@ -130,15 +129,14 @@ def main():
             if st.button("Ara / Filtrele"):
                 if secilen_sutun and aranan_deger:
                     try:
-                        # Sayısal kontrol
                         try:
                             val = float(aranan_deger)
                         except ValueError:
                             val = aranan_deger
                         
-                        # --- DÜZELTME BURADA ---
-                        # gc_firestore.FieldPath(...) kullanarak güvenli çağırma yapıyoruz.
-                        docs = db.collection(secilen_tablo).where(gc_firestore.FieldPath(secilen_sutun), "==", val).stream()
+                        # --- KRİTİK DÜZELTME ---
+                        # FieldPath(...) kullanımı artık v1 modülünden geldiği için hata vermez.
+                        docs = db.collection(secilen_tablo).where(FieldPath(secilen_sutun), "==", val).stream()
                         
                         data = [{"Dokuman_ID": doc.id, **doc.to_dict()} for doc in docs]
                         
@@ -192,7 +190,7 @@ def main():
                 except Exception as e:
                     st.error(f"Kayıt eklenirken hata oluştu: {e}")
 
-    # 4. KAYIT GÜNCELLEME (EXCEL MODU)
+    # 4. KAYIT GÜNCELLEME
     elif secim == "Kayıt Güncelle":
         st.header("✏️ Kayıt Güncelleme (Excel Modu)")
         st.info("Tablo üzerindeki verileri değiştirip 'Değişiklikleri Kaydet' butonuna basın.")
@@ -237,7 +235,7 @@ def main():
             else:
                 st.warning("Bu tablo boş.")
 
-    # 5. KAYIT SİLME (CHECKBOX MODU)
+    # 5. KAYIT SİLME
     elif secim == "Kayıt Silme":
         st.header("🗑️ Kayıt Silme (Çoklu Seçim)")
         tablolar = get_table_list()
