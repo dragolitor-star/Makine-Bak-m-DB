@@ -8,6 +8,11 @@ import traceback
 import os
 import hashlib
 import io
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import random
+import string
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -17,14 +22,20 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- DİL SÖZLÜĞÜ (TRANSLATIONS) ---
+# --- DİL SÖZLÜĞÜ (GÜNCELLENDİ) ---
 TRANS = {
     "tr": {
         "login_title": "Giriş Yap",
         "username": "Kullanıcı Adı",
         "password": "Şifre",
+        "email": "E-Posta Adresi",
         "login_btn": "Giriş Yap",
         "logout_btn": "Çıkış Yap",
+        "forgot_pass": "Şifremi Unuttum / Sıfırla",
+        "send_reset_link": "Yeni Şifre Gönder",
+        "reset_success": "✅ Yeni şifreniz e-posta adresinize gönderildi!",
+        "reset_fail": "❌ Kullanıcı bulunamadı veya e-posta eşleşmedi.",
+        "email_error": "E-posta gönderilirken hata oluştu. Lütfen yöneticiye başvurun.",
         "welcome": "Hoşgeldin",
         "dashboard": "Kontrol Paneli",
         "dashboard_desc": "Yapmak istediğiniz işlemi seçiniz.",
@@ -32,7 +43,6 @@ TRANS = {
         "err_pass": "Hatalı şifre!",
         "err_user": "Kullanıcı bulunamadı!",
         "success_login": "Giriş Başarılı!",
-        # Menü Öğeleri
         "menu_view": "📂 Tablo Görüntüleme",
         "menu_search": "🔍 Arama & Filtreleme",
         "menu_add": "➕ Yeni Kayıt Ekle",
@@ -44,38 +54,13 @@ TRANS = {
         "menu_logs": "📝 Log Kayıtları",
         "menu_del_table": "💣 Tablo Silme",
         "menu_admin": "👑 Kullanıcı Yönetimi",
-        # Genel
         "select_table": "Tablo Seçin:",
         "total_records": "Toplam Kayıt:",
         "save": "Kaydet",
         "delete": "Sil",
-        "cancel": "İptal",
-        "confirm": "Onayla",
         "success": "İşlem Başarılı!",
         "error": "Hata oluştu:",
         "warning_empty": "Bu tablo boş.",
-        "warning_no_table": "Tablo bulunamadı.",
-        # Modüller
-        "col_search": "Aranacak Sütun:",
-        "val_search": "Aranacak Değer:",
-        "res_found": "sonuç bulundu.",
-        "loc_mgmt": "⚙️ Lokasyon Yönetimi",
-        "new_loc": "Yeni Lokasyon:",
-        "add": "Ekle",
-        "target_loc": "Hedef Lokasyon:",
-        "transfer_btn": "TRANSFER ET",
-        "transfer_success": "Transfer Başarılı!",
-        "select_rows": "Seçilen Kayıt Sayısı:",
-        "date_send": "Gönderim Tarihi",
-        "date_return": "Tahmini Geri Alım",
-        "duration": "Görev Süresi (Gün):",
-        "err_date": "Dönüş tarihi gönderimden önce olamaz!",
-        "late_alert": "🚨 GECİKEN TRANSFERLER:",
-        "today_alert": "⚠️ BUGÜN DÖNMESİ GEREKEN:",
-        "soon_alert": "📅 Yakında Dönecekler:",
-        "transfer_log_title": "📋 Tüm Transfer Kayıtları",
-        "download_excel": "📥 Listeyi İndir (Excel)",
-        # Admin
         "new_user_title": "Yeni Kullanıcı Ekle",
         "role": "Rol",
         "perms": "Yetkiler",
@@ -83,20 +68,22 @@ TRANS = {
         "user_list": "Kullanıcı Listesi",
         "delete_user": "Kullanıcıyı Sil",
         "err_self_del": "Kendinizi silemezsiniz.",
-        # Excel Modu
-        "excel_mode_info": "Hücreye tıklayıp değiştirin, sonra 'Kaydet'e basın.",
-        "save_changes": "💾 Değişiklikleri Kaydet",
-        # Delete Modu
-        "del_selected": "SEÇİLİLERİ SİL",
-        "del_warning": "Dikkat: Geri alınamaz!",
-        "confirm_del_table": "Onay için tablo adını yazın:",
+        "mail_subject": "Almaxtex - Yeni Şifreniz",
+        "mail_body": "Merhaba,\n\nHesabınız için şifre sıfırlama talebi aldık.\n\nKullanıcı Adı: {}\nYeni Şifreniz: {}\n\nLütfen giriş yaptıktan sonra güvenliğiniz için şifrenizi değiştirmeyi unutmayın.",
+        "no_email_config": "Sistemde e-posta ayarları yapılmamış. Lütfen yönetici ile görüşün."
     },
     "en": {
         "login_title": "Login",
         "username": "Username",
         "password": "Password",
+        "email": "Email Address",
         "login_btn": "Login",
         "logout_btn": "Logout",
+        "forgot_pass": "Forgot Password / Reset",
+        "send_reset_link": "Send New Password",
+        "reset_success": "✅ New password has been sent to your email!",
+        "reset_fail": "❌ User not found or email mismatch.",
+        "email_error": "Error sending email. Please contact admin.",
         "welcome": "Welcome",
         "dashboard": "Dashboard",
         "dashboard_desc": "Select an operation below.",
@@ -119,31 +106,9 @@ TRANS = {
         "total_records": "Total Records:",
         "save": "Save",
         "delete": "Delete",
-        "cancel": "Cancel",
-        "confirm": "Confirm",
         "success": "Operation Successful!",
         "error": "Error occurred:",
         "warning_empty": "This table is empty.",
-        "warning_no_table": "No table found.",
-        "col_search": "Search Column:",
-        "val_search": "Search Value:",
-        "res_found": "results found.",
-        "loc_mgmt": "⚙️ Location Management",
-        "new_loc": "New Location:",
-        "add": "Add",
-        "target_loc": "Target Location:",
-        "transfer_btn": "TRANSFER",
-        "transfer_success": "Transfer Successful!",
-        "select_rows": "Selected Rows:",
-        "date_send": "Sent Date",
-        "date_return": "Est. Return Date",
-        "duration": "Duration (Days):",
-        "err_date": "Return date cannot be before sent date!",
-        "late_alert": "🚨 OVERDUE TRANSFERS:",
-        "today_alert": "⚠️ DUE TODAY:",
-        "soon_alert": "📅 DUE SOON:",
-        "transfer_log_title": "📋 All Transfer Logs",
-        "download_excel": "📥 Download List (Excel)",
         "new_user_title": "Add New User",
         "role": "Role",
         "perms": "Permissions",
@@ -151,18 +116,22 @@ TRANS = {
         "user_list": "User List",
         "delete_user": "Delete User",
         "err_self_del": "You cannot delete yourself.",
-        "excel_mode_info": "Click cells to edit, then press 'Save'.",
-        "save_changes": "💾 Save Changes",
-        "del_selected": "DELETE SELECTED",
-        "del_warning": "Warning: Cannot be undone!",
-        "confirm_del_table": "Type table name to confirm:",
+        "mail_subject": "Almaxtex - Your New Password",
+        "mail_body": "Hello,\n\nWe received a password reset request for your account.\n\nUsername: {}\nNew Password: {}\n\nPlease remember to change your password after logging in.",
+        "no_email_config": "Email settings not configured. Contact admin."
     },
     "ar": {
         "login_title": "تسجيل الدخول",
         "username": "اسم المستخدم",
         "password": "كلمة المرور",
+        "email": "البريد الإلكتروني",
         "login_btn": "دخول",
         "logout_btn": "خروج",
+        "forgot_pass": "نسيت كلمة المرور",
+        "send_reset_link": "إرسال كلمة مرور جديدة",
+        "reset_success": "✅ تم إرسال كلمة المرور الجديدة إلى بريدك الإلكتروني!",
+        "reset_fail": "❌ المستخدم غير موجود أو البريد الإلكتروني غير متطابق.",
+        "email_error": "حدث خطأ أثناء إرسال البريد. اتصل بالمسؤول.",
         "welcome": "أهلاً بك",
         "dashboard": "لوحة التحكم",
         "dashboard_desc": "اختر عملية من الأسفل.",
@@ -185,31 +154,9 @@ TRANS = {
         "total_records": "إجمالي السجلات:",
         "save": "حفظ",
         "delete": "حذف",
-        "cancel": "إلغاء",
-        "confirm": "تأكيد",
         "success": "تمت العملية بنجاح!",
         "error": "حدث خطأ:",
         "warning_empty": "هذا الجدول فارغ.",
-        "warning_no_table": "لم يتم العثور على جدول.",
-        "col_search": "عمود البحث:",
-        "val_search": "قيمة البحث:",
-        "res_found": "نتائج.",
-        "loc_mgmt": "⚙️ إدارة المواقع",
-        "new_loc": "موقع جديد:",
-        "add": "إضافة",
-        "target_loc": "الموقع المستهدف:",
-        "transfer_btn": "نقل",
-        "transfer_success": "تم النقل بنجاح!",
-        "select_rows": "السجلات المحددة:",
-        "date_send": "تاريخ الإرسال",
-        "date_return": "تاريخ العودة المتوقع",
-        "duration": "المدة (أيام):",
-        "err_date": "لا يمكن أن يكون تاريخ العودة قبل الإرسال!",
-        "late_alert": "🚨 تحويلات متأخرة:",
-        "today_alert": "⚠️ مستحقة اليوم:",
-        "soon_alert": "📅 ستعود قريباً:",
-        "transfer_log_title": "📋 سجلات النقل",
-        "download_excel": "📥 تحميل القائمة (Excel)",
         "new_user_title": "إضافة مستخدم جديد",
         "role": "الدور",
         "perms": "الصلاحيات",
@@ -217,104 +164,37 @@ TRANS = {
         "user_list": "قائمة المستخدمين",
         "delete_user": "حذف المستخدم",
         "err_self_del": "لا يمكنك حذف نفسك.",
-        "excel_mode_info": "انقر على الخلايا للتعديل، ثم اضغط 'حفظ'.",
-        "save_changes": "💾 حفظ التغييرات",
-        "del_selected": "حذف المحدد",
-        "del_warning": "تحذير: لا يمكن التراجع!",
-        "confirm_del_table": "اكتب اسم الجدول للتأكيد:",
+        "mail_subject": "Almaxtex - كلمة المرور الجديدة",
+        "mail_body": "مرحباً،\n\nلقد تلقينا طلب إعادة تعيين كلمة المرور لحسابك.\n\nاسم المستخدم: {}\nكلمة المرور الجديدة: {}\n\nيرجى تغيير كلمة المرور بعد تسجيل الدخول.",
+        "no_email_config": "إعدادات البريد الإلكتروني غير متوفرة."
     }
 }
 
-# Varsayılan dil
 if "lang" not in st.session_state:
     st.session_state["lang"] = "tr"
 
 def t(key):
-    """Çeviri fonksiyonu"""
     lang = st.session_state["lang"]
     return TRANS.get(lang, TRANS["tr"]).get(key, key)
 
-# --- ÖZEL CSS (KOYU TEMA + RTL DESTEĞİ) ---
+# --- ÖZEL CSS ---
 def inject_custom_css():
-    # Arapça seçildiyse RTL (Sağdan Sola) ayarlarını ekle
-    rtl_css = """
-        direction: rtl; 
-        text-align: right;
-    """ if st.session_state["lang"] == "ar" else ""
-
+    rtl_css = "direction: rtl; text-align: right;" if st.session_state["lang"] == "ar" else ""
     st.markdown(f"""
         <style>
-            :root {{
-                --primary-color: #93022E;
-                --bg-color: #151515;
-                --secondary-bg: #1E1E1E;
-                --text-color: #E0E0E0;
-            }}
-            .stApp {{
-                background-color: var(--bg-color);
-                color: var(--text-color);
-                {rtl_css}
-            }}
-            [data-testid="stHeader"] {{
-                background-color: var(--bg-color);
-            }}
-            h1, h2, h3 {{
-                color: white !important;
-                font-weight: 700;
-            }}
-            /* Butonlar */
-            div.stButton > button:first-child {{
-                background-color: var(--primary-color);
-                color: white !important;
-                border: 1px solid var(--primary-color);
-                border-radius: 6px;
-                padding: 0.75rem 1.5rem;
-                font-weight: 600;
-                transition: all 0.2s ease;
-                width: 100%;
-            }}
-            div.stButton > button:first-child:hover {{
-                background-color: #B00338;
-                border-color: #B00338;
-                box-shadow: 0 0 10px rgba(147, 2, 46, 0.6);
-            }}
-            /* Dil Butonları için Özel Stil (Küçük) */
-            div[data-testid="column"] button {{
-                padding: 0.2rem 0.5rem !important;
-                font-size: 0.8rem;
-            }}
-            
-            [data-testid="baseButton-secondary"] {{
-                background-color: transparent !important;
-                color: #FFFFFF !important;
-                border: 1px solid #555 !important;
-            }}
-            [data-testid="baseButton-secondary"]:hover {{
-                border-color: var(--primary-color) !important;
-                color: var(--primary-color) !important;
-            }}
-            .stTextInput input, .stSelectbox div[data-baseweb="select"] > div, .stDateInput input {{
-                background-color: #252525 !important;
-                color: white !important;
-                border: 1px solid #444 !important;
-                border-radius: 6px;
-                {rtl_css}
-            }}
-            [data-testid="stDataFrame"] {{
-                background-color: #1E1E1E;
-                border: 1px solid #333;
-                border-radius: 6px;
-            }}
-            [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {{
-                 background-color: var(--secondary-bg);
-                 padding: 1.5rem;
-                 border-radius: 8px;
-                 border: 1px solid #333;
-            }}
-            .streamlit-expanderHeader {{
-                background-color: #252525 !important;
-                color: white !important;
-            }}
+            :root {{ --primary-color: #93022E; --bg-color: #151515; --secondary-bg: #1E1E1E; --text-color: #E0E0E0; }}
+            .stApp {{ background-color: var(--bg-color); color: var(--text-color); {rtl_css} }}
+            [data-testid="stHeader"] {{ background-color: var(--bg-color); }}
+            h1, h2, h3 {{ color: white !important; font-weight: 700; }}
+            div.stButton > button:first-child {{ background-color: var(--primary-color); color: white !important; border: 1px solid var(--primary-color); border-radius: 6px; padding: 0.75rem 1.5rem; font-weight: 600; transition: all 0.2s ease; width: 100%; }}
+            div.stButton > button:first-child:hover {{ background-color: #B00338; border-color: #B00338; box-shadow: 0 0 10px rgba(147, 2, 46, 0.6); }}
+            div[data-testid="column"] button {{ padding: 0.2rem 0.5rem !important; font-size: 0.8rem; }}
+            [data-testid="baseButton-secondary"] {{ background-color: transparent !important; color: #FFFFFF !important; border: 1px solid #555 !important; }}
+            [data-testid="baseButton-secondary"]:hover {{ border-color: var(--primary-color) !important; color: var(--primary-color) !important; }}
+            .stTextInput input, .stSelectbox div[data-baseweb="select"] > div, .stDateInput input {{ background-color: #252525 !important; color: white !important; border: 1px solid #444 !important; border-radius: 6px; {rtl_css} }}
+            [data-testid="stDataFrame"] {{ background-color: #1E1E1E; border: 1px solid #333; border-radius: 6px; }}
+            [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {{ background-color: var(--secondary-bg); padding: 1.5rem; border-radius: 8px; border: 1px solid #333; }}
+            .streamlit-expanderHeader {{ background-color: #252525 !important; color: white !important; }}
             .stCheckbox label {{ color: white !important; }}
         </style>
     """, unsafe_allow_html=True)
@@ -327,6 +207,34 @@ def make_hashes(password):
 
 def check_hashes(password, hashed_text):
     return make_hashes(password) == hashed_text
+
+# --- E-POSTA GÖNDERİM FONKSİYONU ---
+def send_email(to_email, username, new_password):
+    if "email" not in st.secrets:
+        return False, t("no_email_config")
+    
+    sender_email = st.secrets["email"]["sender"]
+    sender_password = st.secrets["email"]["password"]
+    
+    subject = t("mail_subject")
+    body = t("mail_body").format(username, new_password)
+    
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        text = msg.as_string()
+        server.sendmail(sender_email, to_email, text)
+        server.quit()
+        return True, "OK"
+    except Exception as e:
+        return False, str(e)
 
 # --- DB BAĞLANTISI ---
 @st.cache_resource
@@ -362,7 +270,8 @@ def update_or_create_admin():
     doc = users_ref.document("admin").get()
     full_perms = ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "transfer", "admin_panel"]
     if not doc.exists:
-        admin_data = {"username": "admin", "password": make_hashes("123456"), "role": "admin", "permissions": full_perms}
+        # Varsayılan admin e-postası boş
+        admin_data = {"username": "admin", "password": make_hashes("123456"), "email": "admin@example.com", "role": "admin", "permissions": full_perms}
         users_ref.document("admin").set(admin_data)
     else:
         current_data = doc.to_dict()
@@ -422,6 +331,11 @@ def set_lang(lang_code):
     st.session_state["lang"] = lang_code
     st.rerun()
 
+def generate_temp_password(length=8):
+    """Rastgele geçici şifre oluşturur"""
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for i in range(length))
+
 # --- ANA UYGULAMA ---
 def main():
     if "logged_in" not in st.session_state:
@@ -433,43 +347,79 @@ def main():
     if "aktif_sayfa" not in st.session_state:
         st.session_state["aktif_sayfa"] = "Ana Sayfa"
 
-    # --- DİL SEÇİM BUTONLARI (SAĞ ÜST) ---
-    # Bu kısmı en tepeye koyuyoruz ki her ekranda görünsün
-    
-    # Sağ üst köşe için kolon yapısı (Boşluk + Butonlar)
+    # --- DİL BUTONLARI ---
     h1, h2 = st.columns([8, 2])
     with h2:
-        # Yan yana küçük butonlar
         c_tr, c_ar, c_en = st.columns(3)
         if c_tr.button("TR 🇹🇷"): set_lang("tr")
         if c_ar.button("ARB 🇪🇬"): set_lang("ar")
         if c_en.button("ENG 🇺🇸"): set_lang("en")
 
-    # --- GİRİŞ EKRANI ---
+    # --- GİRİŞ EKRANI & ŞİFRE SIFIRLAMA ---
     if not st.session_state["logged_in"]:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("<h1 style='text-align: center; color: #93022E;'>ALMAXTEX</h1>", unsafe_allow_html=True)
             st.markdown(f"<h4 style='text-align: center;'>{t('login_title')}</h4>", unsafe_allow_html=True)
             st.write("")
-            username = st.text_input(t("username"))
-            password = st.text_input(t("password"), type="password")
-            st.write("")
-            if st.button(t("login_btn"), use_container_width=True):
-                user_ref = db.collection("system_users").document(username)
-                user_doc = user_ref.get()
-                if user_doc.exists:
-                    user_data = user_doc.to_dict()
-                    if check_hashes(password, user_data['password']):
-                        st.session_state["logged_in"] = True
-                        st.session_state["username"] = username
-                        st.session_state["role"] = user_data.get("role", "user")
-                        st.session_state["permissions"] = user_data.get("permissions", [])
-                        st.session_state["aktif_sayfa"] = "Ana Sayfa"
-                        st.success(t("success_login"))
-                        st.rerun()
-                    else: st.error(t("err_pass"))
-                else: st.error(t("err_user"))
+            
+            # Giriş Sekmesi ve Şifre Sıfırlama Sekmesi
+            tab_login, tab_reset = st.tabs([t("login_title"), t("forgot_pass")])
+            
+            with tab_login:
+                username = st.text_input(t("username"))
+                password = st.text_input(t("password"), type="password")
+                st.write("")
+                if st.button(t("login_btn"), use_container_width=True):
+                    user_ref = db.collection("system_users").document(username)
+                    user_doc = user_ref.get()
+                    if user_doc.exists:
+                        user_data = user_doc.to_dict()
+                        if check_hashes(password, user_data['password']):
+                            st.session_state["logged_in"] = True
+                            st.session_state["username"] = username
+                            st.session_state["role"] = user_data.get("role", "user")
+                            st.session_state["permissions"] = user_data.get("permissions", [])
+                            st.session_state["aktif_sayfa"] = "Ana Sayfa"
+                            st.success(t("success_login"))
+                            st.rerun()
+                        else: st.error(t("err_pass"))
+                    else: st.error(t("err_user"))
+            
+            with tab_reset:
+                st.info("Kullanıcı adınızı ve e-posta adresinizi girin.")
+                r_user = st.text_input(t("username"), key="r_user")
+                r_email = st.text_input(t("email"), key="r_email")
+                
+                if st.button(t("send_reset_link"), use_container_width=True):
+                    if r_user and r_email:
+                        user_ref = db.collection("system_users").document(r_user)
+                        user_doc = user_ref.get()
+                        
+                        if user_doc.exists:
+                            user_data = user_doc.to_dict()
+                            # E-Posta Kontrolü (Veritabanındaki ile eşleşiyor mu?)
+                            stored_email = user_data.get("email", "")
+                            
+                            if stored_email == r_email:
+                                # 1. Yeni Geçici Şifre Oluştur
+                                new_pass = generate_temp_password()
+                                # 2. DB'yi Güncelle
+                                user_ref.update({"password": make_hashes(new_pass)})
+                                # 3. E-Posta Gönder
+                                success, msg = send_email(r_email, r_user, new_pass)
+                                
+                                if success:
+                                    st.success(t("reset_success"))
+                                else:
+                                    st.error(f"{t('email_error')} ({msg})")
+                            else:
+                                st.error(t("reset_fail"))
+                        else:
+                            st.error(t("reset_fail"))
+                    else:
+                        st.warning("Lütfen alanları doldurun.")
+
         return
 
     # --- HEADER ---
@@ -569,7 +519,6 @@ def main():
         elif secim == "Makine Transferi":
             st.header(t("menu_transfer"))
             
-            # Transfer Logları ve Uyarılar
             transfer_docs = list(db.collection('transfer_loglari').stream())
             transfer_data = [d.to_dict() for d in transfer_docs]
             if transfer_data:
@@ -807,6 +756,8 @@ def main():
                 with st.form("add_user"):
                     nu = st.text_input(t("username"))
                     np = st.text_input(t("password"), type="password")
+                    # YENİ ALAN: E-POSTA
+                    ne = st.text_input(t("email")) 
                     nr = st.selectbox(t("role"), ["user", "admin"])
                     st.write(t("perms"))
                     c1, c2, c3, c4 = st.columns(4)
@@ -822,12 +773,20 @@ def main():
                     if c4.checkbox("Log"): perms.append("logs")
                     if c4.checkbox("Transfer"): perms.append("transfer")
                     if nr == "admin": perms.append("admin_panel")
+                    
                     if st.form_submit_button(t("create_user")):
-                        if nu and np:
-                            db.collection("system_users").document(nu).set({"username": nu, "password": make_hashes(np), "role": nr, "permissions": perms})
+                        if nu and np and ne:
+                            db.collection("system_users").document(nu).set({
+                                "username": nu, 
+                                "password": make_hashes(np), 
+                                "email": ne, # E-posta kaydediliyor
+                                "role": nr, 
+                                "permissions": perms
+                            })
                             st.success(t("success"))
                             log_kayit_ekle("ADMIN", "create_user", f"Kullanıcı Eklendi: {nu}")
-                        else: st.error("Eksik bilgi.")
+                        else: st.error("Tüm alanları doldurun (Kullanıcı Adı, Şifre, E-posta).")
+            
             st.subheader(t("user_list"))
             users = [u.to_dict() for u in db.collection("system_users").stream()]
             if users:
