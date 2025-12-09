@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import random
 import string
+import time # Yenileme beklemesi için eklendi
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -22,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- DİL SÖZLÜĞÜ (ŞİFRE DEĞİŞTİRME EKLENDİ) ---
+# --- DİL SÖZLÜĞÜ ---
 TRANS = {
     "tr": {
         "login_title": "Giriş Yap",
@@ -71,14 +72,13 @@ TRANS = {
         "mail_subject": "Almaxtex - Yeni Şifreniz",
         "mail_body": "Merhaba,\n\nHesabınız için şifre sıfırlama talebi aldık.\n\nKullanıcı Adı: {}\nYeni Şifreniz: {}\n\nLütfen giriş yaptıktan sonra güvenliğiniz için şifrenizi değiştirmeyi unutmayın.",
         "no_email_config": "Sistemde e-posta ayarları yapılmamış. Lütfen yönetici ile görüşün.",
-        # Şifre Değiştirme
         "change_pass_title": "🔐 Şifre Değiştir",
         "old_pass": "Eski Şifre",
         "new_pass": "Yeni Şifre",
         "confirm_pass": "Yeni Şifre (Tekrar)",
         "pass_mismatch": "Yeni şifreler uyuşmuyor!",
         "pass_wrong_old": "Eski şifre hatalı!",
-        "pass_changed": "Şifreniz başarıyla değiştirildi.",
+        "pass_changed": "Şifreniz başarıyla değiştirildi. Sayfa yenileniyor...",
     },
     "en": {
         "login_title": "Login",
@@ -127,14 +127,13 @@ TRANS = {
         "mail_subject": "Almaxtex - Your New Password",
         "mail_body": "Hello,\n\nWe received a password reset request for your account.\n\nUsername: {}\nNew Password: {}\n\nPlease remember to change your password after logging in.",
         "no_email_config": "Email settings not configured. Contact admin.",
-        # Change Password
         "change_pass_title": "🔐 Change Password",
         "old_pass": "Old Password",
         "new_pass": "New Password",
         "confirm_pass": "Confirm New Password",
         "pass_mismatch": "New passwords do not match!",
         "pass_wrong_old": "Incorrect old password!",
-        "pass_changed": "Password changed successfully.",
+        "pass_changed": "Password changed successfully. Refreshing...",
     },
     "ar": {
         "login_title": "تسجيل الدخول",
@@ -183,14 +182,13 @@ TRANS = {
         "mail_subject": "Almaxtex - كلمة المرور الجديدة",
         "mail_body": "مرحباً،\n\nلقد تلقينا طلب إعادة تعيين كلمة المرور لحسابك.\n\nاسم المستخدم: {}\nكلمة المرور الجديدة: {}\n\nيرجى تغيير كلمة المرور بعد تسجيل الدخول.",
         "no_email_config": "إعدادات البريد الإلكتروني غير متوفرة.",
-        # Change Password
         "change_pass_title": "🔐 تغيير كلمة المرور",
         "old_pass": "كلمة المرور القديمة",
         "new_pass": "كلمة المرور الجديدة",
         "confirm_pass": "تأكيد كلمة المرور الجديدة",
         "pass_mismatch": "كلمات المرور الجديدة غير متطابقة!",
         "pass_wrong_old": "كلمة المرور القديمة غير صحيحة!",
-        "pass_changed": "تم تغيير كلمة المرور بنجاح.",
+        "pass_changed": "تم تغيير كلمة المرور بنجاح. جاري التحديث...",
     }
 }
 
@@ -448,7 +446,7 @@ def main():
         st.title(t("dashboard"))
         st.info(t("dashboard_desc"))
         
-        # ŞİFRE DEĞİŞTİRME ALANI (ANA EKRANDA)
+        # --- ŞİFRE DEĞİŞTİRME ALANI (YENİLENEN) ---
         with st.expander(t("change_pass_title")):
             with st.form("change_pass_form"):
                 old_p = st.text_input(t("old_pass"), type="password")
@@ -464,6 +462,8 @@ def main():
                             if new_p:
                                 user_ref.update({"password": make_hashes(new_p)})
                                 st.success(t("pass_changed"))
+                                time.sleep(1.5) # Mesajın görünmesi için bekleme
+                                st.rerun() # Sayfayı yenile ve formu temizle
                             else:
                                 st.error("Şifre boş olamaz.")
                         else:
