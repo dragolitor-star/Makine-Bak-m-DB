@@ -22,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- DİL SÖZLÜĞÜ (GÜNCELLENDİ) ---
+# --- DİL SÖZLÜĞÜ (ŞİFRE DEĞİŞTİRME EKLENDİ) ---
 TRANS = {
     "tr": {
         "login_title": "Giriş Yap",
@@ -70,7 +70,15 @@ TRANS = {
         "err_self_del": "Kendinizi silemezsiniz.",
         "mail_subject": "Almaxtex - Yeni Şifreniz",
         "mail_body": "Merhaba,\n\nHesabınız için şifre sıfırlama talebi aldık.\n\nKullanıcı Adı: {}\nYeni Şifreniz: {}\n\nLütfen giriş yaptıktan sonra güvenliğiniz için şifrenizi değiştirmeyi unutmayın.",
-        "no_email_config": "Sistemde e-posta ayarları yapılmamış. Lütfen yönetici ile görüşün."
+        "no_email_config": "Sistemde e-posta ayarları yapılmamış. Lütfen yönetici ile görüşün.",
+        # Şifre Değiştirme
+        "change_pass_title": "🔐 Şifre Değiştir",
+        "old_pass": "Eski Şifre",
+        "new_pass": "Yeni Şifre",
+        "confirm_pass": "Yeni Şifre (Tekrar)",
+        "pass_mismatch": "Yeni şifreler uyuşmuyor!",
+        "pass_wrong_old": "Eski şifre hatalı!",
+        "pass_changed": "Şifreniz başarıyla değiştirildi.",
     },
     "en": {
         "login_title": "Login",
@@ -118,7 +126,15 @@ TRANS = {
         "err_self_del": "You cannot delete yourself.",
         "mail_subject": "Almaxtex - Your New Password",
         "mail_body": "Hello,\n\nWe received a password reset request for your account.\n\nUsername: {}\nNew Password: {}\n\nPlease remember to change your password after logging in.",
-        "no_email_config": "Email settings not configured. Contact admin."
+        "no_email_config": "Email settings not configured. Contact admin.",
+        # Change Password
+        "change_pass_title": "🔐 Change Password",
+        "old_pass": "Old Password",
+        "new_pass": "New Password",
+        "confirm_pass": "Confirm New Password",
+        "pass_mismatch": "New passwords do not match!",
+        "pass_wrong_old": "Incorrect old password!",
+        "pass_changed": "Password changed successfully.",
     },
     "ar": {
         "login_title": "تسجيل الدخول",
@@ -166,7 +182,15 @@ TRANS = {
         "err_self_del": "لا يمكنك حذف نفسك.",
         "mail_subject": "Almaxtex - كلمة المرور الجديدة",
         "mail_body": "مرحباً،\n\nلقد تلقينا طلب إعادة تعيين كلمة المرور لحسابك.\n\nاسم المستخدم: {}\nكلمة المرور الجديدة: {}\n\nيرجى تغيير كلمة المرور بعد تسجيل الدخول.",
-        "no_email_config": "إعدادات البريد الإلكتروني غير متوفرة."
+        "no_email_config": "إعدادات البريد الإلكتروني غير متوفرة.",
+        # Change Password
+        "change_pass_title": "🔐 تغيير كلمة المرور",
+        "old_pass": "كلمة المرور القديمة",
+        "new_pass": "كلمة المرور الجديدة",
+        "confirm_pass": "تأكيد كلمة المرور الجديدة",
+        "pass_mismatch": "كلمات المرور الجديدة غير متطابقة!",
+        "pass_wrong_old": "كلمة المرور القديمة غير صحيحة!",
+        "pass_changed": "تم تغيير كلمة المرور بنجاح.",
     }
 }
 
@@ -208,7 +232,7 @@ def make_hashes(password):
 def check_hashes(password, hashed_text):
     return make_hashes(password) == hashed_text
 
-# --- E-POSTA GÖNDERİM FONKSİYONU ---
+# --- E-POSTA GÖNDERİM ---
 def send_email(to_email, username, new_password):
     if "email" not in st.secrets:
         return False, t("no_email_config")
@@ -270,7 +294,6 @@ def update_or_create_admin():
     doc = users_ref.document("admin").get()
     full_perms = ["view", "search", "add", "update", "delete", "delete_table", "upload", "report", "logs", "transfer", "admin_panel"]
     if not doc.exists:
-        # Varsayılan admin e-postası boş
         admin_data = {"username": "admin", "password": make_hashes("123456"), "email": "admin@example.com", "role": "admin", "permissions": full_perms}
         users_ref.document("admin").set(admin_data)
     else:
@@ -332,7 +355,6 @@ def set_lang(lang_code):
     st.rerun()
 
 def generate_temp_password(length=8):
-    """Rastgele geçici şifre oluşturur"""
     chars = string.ascii_letters + string.digits
     return ''.join(random.choice(chars) for i in range(length))
 
@@ -363,7 +385,6 @@ def main():
             st.markdown(f"<h4 style='text-align: center;'>{t('login_title')}</h4>", unsafe_allow_html=True)
             st.write("")
             
-            # Giriş Sekmesi ve Şifre Sıfırlama Sekmesi
             tab_login, tab_reset = st.tabs([t("login_title"), t("forgot_pass")])
             
             with tab_login:
@@ -390,36 +411,22 @@ def main():
                 st.info("Kullanıcı adınızı ve e-posta adresinizi girin.")
                 r_user = st.text_input(t("username"), key="r_user")
                 r_email = st.text_input(t("email"), key="r_email")
-                
                 if st.button(t("send_reset_link"), use_container_width=True):
                     if r_user and r_email:
                         user_ref = db.collection("system_users").document(r_user)
                         user_doc = user_ref.get()
-                        
                         if user_doc.exists:
                             user_data = user_doc.to_dict()
-                            # E-Posta Kontrolü (Veritabanındaki ile eşleşiyor mu?)
                             stored_email = user_data.get("email", "")
-                            
                             if stored_email == r_email:
-                                # 1. Yeni Geçici Şifre Oluştur
                                 new_pass = generate_temp_password()
-                                # 2. DB'yi Güncelle
                                 user_ref.update({"password": make_hashes(new_pass)})
-                                # 3. E-Posta Gönder
                                 success, msg = send_email(r_email, r_user, new_pass)
-                                
-                                if success:
-                                    st.success(t("reset_success"))
-                                else:
-                                    st.error(f"{t('email_error')} ({msg})")
-                            else:
-                                st.error(t("reset_fail"))
-                        else:
-                            st.error(t("reset_fail"))
-                    else:
-                        st.warning("Lütfen alanları doldurun.")
-
+                                if success: st.success(t("reset_success"))
+                                else: st.error(f"{t('email_error')} ({msg})")
+                            else: st.error(t("reset_fail"))
+                        else: st.error(t("reset_fail"))
+                    else: st.warning("Lütfen alanları doldurun.")
         return
 
     # --- HEADER ---
@@ -441,6 +448,29 @@ def main():
         st.title(t("dashboard"))
         st.info(t("dashboard_desc"))
         
+        # ŞİFRE DEĞİŞTİRME ALANI (ANA EKRANDA)
+        with st.expander(t("change_pass_title")):
+            with st.form("change_pass_form"):
+                old_p = st.text_input(t("old_pass"), type="password")
+                new_p = st.text_input(t("new_pass"), type="password")
+                con_p = st.text_input(t("confirm_pass"), type="password")
+                
+                if st.form_submit_button(t("save")):
+                    user_ref = db.collection("system_users").document(st.session_state["username"])
+                    user_data = user_ref.get().to_dict()
+                    
+                    if check_hashes(old_p, user_data['password']):
+                        if new_p == con_p:
+                            if new_p:
+                                user_ref.update({"password": make_hashes(new_p)})
+                                st.success(t("pass_changed"))
+                            else:
+                                st.error("Şifre boş olamaz.")
+                        else:
+                            st.error(t("pass_mismatch"))
+                    else:
+                        st.error(t("pass_wrong_old"))
+
         col1, col2, col3 = st.columns(3)
         with col1:
             if "view" in permissions:
@@ -756,7 +786,6 @@ def main():
                 with st.form("add_user"):
                     nu = st.text_input(t("username"))
                     np = st.text_input(t("password"), type="password")
-                    # YENİ ALAN: E-POSTA
                     ne = st.text_input(t("email")) 
                     nr = st.selectbox(t("role"), ["user", "admin"])
                     st.write(t("perms"))
@@ -779,13 +808,13 @@ def main():
                             db.collection("system_users").document(nu).set({
                                 "username": nu, 
                                 "password": make_hashes(np), 
-                                "email": ne, # E-posta kaydediliyor
+                                "email": ne,
                                 "role": nr, 
                                 "permissions": perms
                             })
                             st.success(t("success"))
                             log_kayit_ekle("ADMIN", "create_user", f"Kullanıcı Eklendi: {nu}")
-                        else: st.error("Tüm alanları doldurun (Kullanıcı Adı, Şifre, E-posta).")
+                        else: st.error("Eksik bilgi (Ad, Şifre, E-posta).")
             
             st.subheader(t("user_list"))
             users = [u.to_dict() for u in db.collection("system_users").stream()]
