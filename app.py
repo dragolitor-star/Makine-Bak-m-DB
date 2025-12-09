@@ -13,7 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import random
 import string
-import time # Yenileme beklemesi için eklendi
+import time
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -79,6 +79,7 @@ TRANS = {
         "pass_mismatch": "Yeni şifreler uyuşmuyor!",
         "pass_wrong_old": "Eski şifre hatalı!",
         "pass_changed": "Şifreniz başarıyla değiştirildi. Sayfa yenileniyor...",
+        "access_denied": "⛔ Bu alana sadece Yöneticiler (Admin) erişebilir!",
     },
     "en": {
         "login_title": "Login",
@@ -134,6 +135,7 @@ TRANS = {
         "pass_mismatch": "New passwords do not match!",
         "pass_wrong_old": "Incorrect old password!",
         "pass_changed": "Password changed successfully. Refreshing...",
+        "access_denied": "⛔ Access Denied! Admins only.",
     },
     "ar": {
         "login_title": "تسجيل الدخول",
@@ -189,6 +191,7 @@ TRANS = {
         "pass_mismatch": "كلمات المرور الجديدة غير متطابقة!",
         "pass_wrong_old": "كلمة المرور القديمة غير صحيحة!",
         "pass_changed": "تم تغيير كلمة المرور بنجاح. جاري التحديث...",
+        "access_denied": "⛔ تم رفض الوصول! للمسؤولين فقط.",
     }
 }
 
@@ -430,7 +433,7 @@ def main():
     # --- HEADER ---
     top_col1, top_col2 = st.columns([6, 1])
     with top_col1:
-        st.markdown(f"### 👋 **{st.session_state['username']}**")
+        st.markdown(f"### 👋 **{st.session_state['username']}** ({st.session_state['role']})")
     with top_col2:
         if st.button(t("logout_btn"), type="secondary", use_container_width=True):
             st.session_state["logged_in"] = False
@@ -440,13 +443,14 @@ def main():
 
     secim = st.session_state["aktif_sayfa"]
     permissions = st.session_state["permissions"]
+    user_role = st.session_state["role"]
 
     # --- DASHBOARD ---
     if secim == "Ana Sayfa":
         st.title(t("dashboard"))
         st.info(t("dashboard_desc"))
         
-        # --- ŞİFRE DEĞİŞTİRME ALANI (YENİLENEN) ---
+        # --- ŞİFRE DEĞİŞTİRME ALANI ---
         with st.expander(t("change_pass_title")):
             with st.form("change_pass_form"):
                 old_p = st.text_input(t("old_pass"), type="password")
@@ -456,20 +460,14 @@ def main():
                 if st.form_submit_button(t("save")):
                     user_ref = db.collection("system_users").document(st.session_state["username"])
                     user_data = user_ref.get().to_dict()
-                    
                     if check_hashes(old_p, user_data['password']):
-                        if new_p == con_p:
-                            if new_p:
-                                user_ref.update({"password": make_hashes(new_p)})
-                                st.success(t("pass_changed"))
-                                time.sleep(1.5) # Mesajın görünmesi için bekleme
-                                st.rerun() # Sayfayı yenile ve formu temizle
-                            else:
-                                st.error("Şifre boş olamaz.")
-                        else:
-                            st.error(t("pass_mismatch"))
-                    else:
-                        st.error(t("pass_wrong_old"))
+                        if new_p == con_p and new_p:
+                            user_ref.update({"password": make_hashes(new_p)})
+                            st.success(t("pass_changed"))
+                            time.sleep(1.5)
+                            st.rerun()
+                        else: st.error(t("pass_mismatch"))
+                    else: st.error(t("pass_wrong_old"))
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -479,7 +477,8 @@ def main():
                 if st.button(t("menu_update"), use_container_width=True): sayfa_degistir("Kayıt Güncelle")
             if "upload" in permissions:
                 if st.button(t("menu_upload"), use_container_width=True): sayfa_degistir("Toplu Tablo Yükle (Excel)")
-            if "admin_panel" in permissions:
+            # SADECE ADMIN GÖREBİLİR
+            if user_role == "admin":
                 if st.button(t("menu_admin"), use_container_width=True): sayfa_degistir("Kullanıcı Yönetimi (Admin)")
 
         with col2:
@@ -779,8 +778,14 @@ def main():
                 st.dataframe(pd.read_excel("Sistem_Loglari.xlsx").sort_index(ascending=False), use_container_width=True)
             else: st.info("Log yok.")
 
-        # 11. ADMIN PANELİ
+        # 11. ADMIN PANELİ (GÜVENLİK DUVARI EKLENDİ)
         elif secim == "Kullanıcı Yönetimi (Admin)":
+            # --- GÜVENLİK KONTROLÜ ---
+            if user_role != "admin":
+                st.error(t("access_denied"))
+                st.stop()
+            # -------------------------
+
             st.header(t("menu_admin"))
             with st.expander(t("new_user_title"), expanded=True):
                 with st.form("add_user"):
